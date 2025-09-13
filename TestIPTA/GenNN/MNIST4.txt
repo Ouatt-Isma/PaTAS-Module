@@ -1,0 +1,10 @@
+IPTA 6 Pois: [[1, 1, 1, 1, 0, 1, 1, 1, 1, 1]]
+IPTA 3 Pois: [[1, 1, 1, 1, 0, 1, 1, 1, 1, 1]]
+IPTA 6 Safe: [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]
+IPTA 3 Safe: [[1, 1, 1, 1, 0, 1, 1, 1, 1, 1]]
+Train: 0.7608
+Test: 0.7492
+Poisoned Images 6: 0.2182
+Clean Images 6: 0.1691
+Poisoned Images 3: 0.4931
+Clean Images 3: 0.8832
