@@ -176,7 +176,7 @@ class NeuralNetwork:
             X_pois_3=None, 
             X_non_pois_3=None, 
             epochs=10, batch_size=64, learning_rate=0.001, shuffle=False,
-            plot=False, fname="defaut"):
+            plot=False, fname="defaut", get_IPTA=False):
         """Train the model using mini-batch SGD and plot accuracy evolution.
         Evaluation is done after each batch on the *whole* datasets.
         """
@@ -287,7 +287,8 @@ class NeuralNetwork:
             plt.savefig(f"{fname}.pdf", dpi=300, bbox_inches="tight")
             plt.close()
 
-            last = lambda k: (history[k][-1] if history[k] else float('nan'))
+            last = lambda k: (history[k][-1] if history[k] else float('nan')
+              
             metrics = {
                 "Train": last("train_acc"),
                 "Test": last("test_acc"),
@@ -296,6 +297,21 @@ class NeuralNetwork:
                 "Poisoned Images 3": last("pois_acc_label3"),
                 "Clean Images 3": last("clean_acc_label3"),
             }
+            
+            if(get_IPTA):
+                       metrics_2 = {}
+                       _, ipta_6_p = self.forward(X_pois_6[0])  
+                       _, ipta_3_p = self.forward(X_pois_3[0]) 
+                       _, ipta_6_s = self.forward(X_non_pois_6[0]) 
+                       _, ipta_3_s = self.forward(X_non_pois_3[0]) 
+                       metrics_2["IPTA 6 Pois"] = ipta_6_p
+                       metrics_2["IPTA 3 Pois"] = ipta_3_p
+                       metrics_2["IPTA 6 Safe"] = ipta_6_s
+                       metrics_2["IPTA 3 Safe"] = ipta_3_s
+                       with open(f"{fname}.txt", "w") as f:
+                                for label, val in metrics.items():
+                                    f.write(f"{label}: {val}\n")
+                    
             with open(f"{fname}.txt", "w") as f:
                 for label, val in metrics.items():
                     f.write(f"{label}: {('nan' if np.isnan(val) else f'{val:.4f}')}\n")
