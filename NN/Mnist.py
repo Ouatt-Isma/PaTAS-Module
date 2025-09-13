@@ -54,7 +54,7 @@ def main_pois(patch, plot=False):
         nn.ptas = False
         nn.train(X_train, y_train_one_hot, X_test=X_test, y_test= y_test_one_hot, 
                  epochs=10, batch_size=18, learning_rate=0.001, plot=True, X_non_pois_3=X_test[ids_3], 
-                 X_non_pois_6=X_test[ids_6], X_pois_3=pois_X_test_3, X_pois_6=pois_X_test_6, fname =f'MNIST{patch}')
+                 X_non_pois_6=X_test[ids_6], X_pois_3=pois_X_test_3, X_pois_6=pois_X_test_6, fname =f'MNIST{patch}', get_IPTA=True)
     else:
         # nn.ptas = False
         nn.train(X_train, y_train_one_hot, epochs=10, batch_size=18, learning_rate=0.001)

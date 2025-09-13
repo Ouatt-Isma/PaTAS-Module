@@ -537,7 +537,12 @@ def main_size():
 def main_pois_soph(run_inf=False):
     img_h_l = 28
     epsilon_low = 10e-2
-    epsilon_up = None
+    epsilon_up = None 
+    IPTA_map = {}
+    IPTA_map[1] = {"3_s": [], "6_s": [], "3_p": [], "6_p": []}
+    IPTA_map[4] = {"3_s": [], "6_s": [], "3_p": [], "6_p": []}
+    IPTA_map[20] = {"3_s": [], "6_s": [], "3_p": [], "6_p": []}
+    IPTA_map[27] = {"3_s": [], "6_s": [], "3_p": [], "6_p": []}
     for patch in [1, 4, 20, 27]:
         omega_thetas_0 = ArrayTO(TrustOpinion.fill(shape=(input_dim_mnist+1, hidden_dim_mnist), method="vacuous"))
         omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim_mnist+1, output_dim_mnist), method="vacuous"))
@@ -574,54 +579,13 @@ def main_pois_soph(run_inf=False):
         print(ptas.omega_thetas[1])
 
         if run_inf:
-            metrics = {
-            }
-            # [[1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]   benign
-            # [[1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1]]   attacker 
-
-            # act_neur = [[0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0]]
-            act_neur = [[1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]
-            aa = ptas.GenIPTA(act_neur)
-            Txpatch = ArrayTO(TrustOpinion.fill(shape = (1, ptas.omega_thetas[0].get_shape()[0] - 1), method="trust"))
-            # for i in range(patch):
-            #     for j in range(patch):
-            #         Txpatch.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
-            print("BENIGN IPTA",aa(Txpatch))
-            metrics["BENIGN IPTA"] =  aa(Txpatch)
-            act_neur = [[1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1]] 
-            aa = ptas.GenIPTA(act_neur)
-            Txpatch = ArrayTO(TrustOpinion.fill(shape = (1, ptas.omega_thetas[0].get_shape()[0] - 1), method="trust"))
-            # for i in range(patch):
-            #     for j in range(patch):
-            #         Txpatch.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
-            print("ATTACKED IPTA", aa(Txpatch))
-            metrics["ATTACKED IPTA"] =  aa(Txpatch)
-
-            # act_neur = [[1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]
-            # aa = ptas.GenIPTA(act_neur)
-            # Txpatch = ArrayTO(TrustOpinion.fill(shape = (1, ptas.omega_thetas[0].get_shape()[0] - 1), method="trust"))
-            # for i in range(patch):
-            #     for j in range(patch):
-            #         Txpatch.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
-            # print(aa(Txpatch))
-
-            act_neur = [[1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1]] 
-            aa = ptas.GenIPTA(act_neur)
-            Txpatch = ArrayTO(TrustOpinion.fill(shape = (1, ptas.omega_thetas[0].get_shape()[0] - 1), method="trust"))
-            for i in range(patch):
-                for j in range(patch):
-                    Txpatch.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
-            print("ATTACKED PATCHED", aa(Txpatch))
-            metrics["ATTACKED PATCHED"] =  aa(Txpatch)
-            
-            with open(f"{datapath}met.txt", "w") as f:
-                for label, val in metrics.items():
-                    f.write(f"{label}: {val}\n")
-            # print("WEIGHTS IN BENIGN IPTA")
-            # 10, 16 
-            # print("WEIGHTS IN ATTACK IPTA")
-            # 1,
-
+           for label, act_neur in IPTA_map.items():
+           	aa = ptas.GenIPTA(act_neur)
+		Txpatch = ArrayTO(TrustOpinion.fill(shape = (1, ptas.omega_thetas[0].get_shape()[0] - 1), method="trust"))
+		TT_val = aa(Txpatch)
+               with open(f"{datapath}all.txt", "a") as f:
+			f.write(f"{label}=>{act_neur}: {TT_val}\n")
+           
 
 def test():
     epsilon_low=10e-2
@@ -635,7 +599,7 @@ def test():
 
 if __name__ == "__main__":
     # test()
-    main_pois_soph()
+    main_pois_soph(True)
     # main_pois()
     # main_size()
     # random_test()

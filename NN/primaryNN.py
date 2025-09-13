@@ -287,7 +287,7 @@ class NeuralNetwork:
             plt.savefig(f"{fname}.pdf", dpi=300, bbox_inches="tight")
             plt.close()
 
-            last = lambda k: (history[k][-1] if history[k] else float('nan')
+            last = lambda k: (history[k][-1] if history[k] else float('nan'))
               
             metrics = {
                 "Train": last("train_acc"),
@@ -300,19 +300,19 @@ class NeuralNetwork:
             
             if(get_IPTA):
                        metrics_2 = {}
-                       _, ipta_6_p = self.forward(X_pois_6[0])  
-                       _, ipta_3_p = self.forward(X_pois_3[0]) 
-                       _, ipta_6_s = self.forward(X_non_pois_6[0]) 
-                       _, ipta_3_s = self.forward(X_non_pois_3[0]) 
+                       _, ipta_6_p = self.forward(X_pois_6[0], getactivated=True)  
+                       _, ipta_3_p = self.forward(X_pois_3[0], getactivated=True) 
+                       _, ipta_6_s = self.forward(X_non_pois_6[0], getactivated=True) 
+                       _, ipta_3_s = self.forward(X_non_pois_3[0], getactivated=True) 
                        metrics_2["IPTA 6 Pois"] = ipta_6_p
                        metrics_2["IPTA 3 Pois"] = ipta_3_p
                        metrics_2["IPTA 6 Safe"] = ipta_6_s
                        metrics_2["IPTA 3 Safe"] = ipta_3_s
                        with open(f"{fname}.txt", "w") as f:
-                                for label, val in metrics.items():
+                                for label, val in metrics_2.items():
                                     f.write(f"{label}: {val}\n")
                     
-            with open(f"{fname}.txt", "w") as f:
+            with open(f"{fname}.txt", "a") as f:
                 for label, val in metrics.items():
                     f.write(f"{label}: {('nan' if np.isnan(val) else f'{val:.4f}')}\n")
 
