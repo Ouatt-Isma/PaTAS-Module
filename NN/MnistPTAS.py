@@ -581,11 +581,13 @@ def main_pois_soph(run_inf=False):
 
         if run_inf:
             for label, act_neur in IPTA_map.items():
-                aa = ptas.GenIPTA(act_neur)
-                Txpatch = ArrayTO(TrustOpinion.fill(shape = (1, ptas.omega_thetas[0].get_shape()[0] - 1), method="trust"))
-                TT_val = aa(Txpatch)
-                with open(f"{datapath}all.txt", "a") as f:
-                    f.write(f"{label}=>{act_neur}: {TT_val}\n")
+               print(label)
+               print(act_neur)
+               aa = ptas.GenIPTA(act_neur)
+               Txpatch = ArrayTO(TrustOpinion.fill(shape = (1, ptas.omega_thetas[0].get_shape()[0] - 1), method="trust"))
+               TT_val = aa(Txpatch)
+               with open(f"{datapath}all.txt", "a") as f:
+                 f.write(f"{label}=>{act_neur}: {TT_val}\n")
            
 
 def test():
