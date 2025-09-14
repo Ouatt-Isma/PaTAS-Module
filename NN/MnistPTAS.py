@@ -539,10 +539,11 @@ def main_pois_soph(run_inf=False):
     epsilon_low = 10e-2
     epsilon_up = None 
     IPTA_map = {}
-    IPTA_map[1] = {"3_s": [], "6_s": [], "3_p": [], "6_p": []}
-    IPTA_map[4] = {"3_s": [], "6_s": [], "3_p": [], "6_p": []}
-    IPTA_map[20] = {"3_s": [], "6_s": [], "3_p": [], "6_p": []}
-    IPTA_map[27] = {"3_s": [], "6_s": [], "3_p": [], "6_p": []}
+    
+    # IPTA_map[1] = {"3_s": [], "6_s": [], "3_p": [], "6_p": []}
+    IPTA_map[4] = {"3_s": [[1, 0, 0, 1, 0, 0, 1, 0, 1, 0]], "6_s": [[0, 0, 1, 1, 0, 0, 0, 0, 1, 1]], "3_p": [[1, 0, 1, 1, 0, 0, 1, 0, 1, 0]], "6_p": [[0, 0, 1, 1, 0, 0, 0, 0, 0, 1]]}
+    # IPTA_map[20] = {"3_s": [], "6_s": [], "3_p": [], "6_p": []}
+    # IPTA_map[27] = {"3_s": [], "6_s": [], "3_p": [], "6_p": []}
     for patch in [1, 4, 20, 27]:
         omega_thetas_0 = ArrayTO(TrustOpinion.fill(shape=(input_dim_mnist+1, hidden_dim_mnist), method="vacuous"))
         omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim_mnist+1, output_dim_mnist), method="vacuous"))
@@ -579,12 +580,12 @@ def main_pois_soph(run_inf=False):
         print(ptas.omega_thetas[1])
 
         if run_inf:
-           for label, act_neur in IPTA_map.items():
-           	aa = ptas.GenIPTA(act_neur)
-		Txpatch = ArrayTO(TrustOpinion.fill(shape = (1, ptas.omega_thetas[0].get_shape()[0] - 1), method="trust"))
-		TT_val = aa(Txpatch)
-               with open(f"{datapath}all.txt", "a") as f:
-			f.write(f"{label}=>{act_neur}: {TT_val}\n")
+            for label, act_neur in IPTA_map.items():
+                aa = ptas.GenIPTA(act_neur)
+                Txpatch = ArrayTO(TrustOpinion.fill(shape = (1, ptas.omega_thetas[0].get_shape()[0] - 1), method="trust"))
+                TT_val = aa(Txpatch)
+                with open(f"{datapath}all.txt", "a") as f:
+                    f.write(f"{label}=>{act_neur}: {TT_val}\n")
            
 
 def test():
