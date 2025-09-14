@@ -52,7 +52,8 @@ class PTAS:
         self.structure = structure # Structure of the NN. assuming only one hidden layer
         self.nntype = nntype
         self.eval = eval
-        self.patch = patch 
+        self.patch = patch
+        self.batch_size=None 
         if(self.eval):
             if(self.patch):
                 self.EVAL = {"trust":[], "untrust":[], "distrust":[], "patch_tr":[], "patch_vac":[]}
@@ -249,7 +250,7 @@ class PTAS:
                         print(self.omega_thetas[1])
                 print("batch obj")
                 print(message_obj.batch) 
-                if message_obj.batch == 4 and message_obj.layer == 0: 
+                if message_obj.batch == 3300 and message_obj.layer == 0: 
                     return True 
                     # print(self.omega_thetas[0])
                     # print()

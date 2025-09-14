@@ -544,7 +544,7 @@ def main_pois_soph(run_inf=False):
     IPTA_map[4] = {"3_s": [[1, 0, 0, 1, 0, 0, 1, 0, 1, 0]], "6_s": [[0, 0, 1, 1, 0, 0, 0, 0, 1, 1]], "3_p": [[1, 0, 1, 1, 0, 0, 1, 0, 1, 0]], "6_p": [[0, 0, 1, 1, 0, 0, 0, 0, 0, 1]]}
     # IPTA_map[20] = {"3_s": [], "6_s": [], "3_p": [], "6_p": []}
     # IPTA_map[27] = {"3_s": [], "6_s": [], "3_p": [], "6_p": []}
-    for patch in [1, 4, 20, 27]:
+    for patch in [4]:
         omega_thetas_0 = ArrayTO(TrustOpinion.fill(shape=(input_dim_mnist+1, hidden_dim_mnist), method="vacuous"))
         omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim_mnist+1, output_dim_mnist), method="vacuous"))
         omega_thetas = [omega_thetas_0, omega_thetas_1]
@@ -580,7 +580,7 @@ def main_pois_soph(run_inf=False):
         print(ptas.omega_thetas[1])
 
         if run_inf:
-            for label, act_neur in IPTA_map.items():
+            for label, act_neur in IPTA_map[patch].items():
                print(label)
                print(act_neur)
                aa = ptas.GenIPTA(act_neur)
