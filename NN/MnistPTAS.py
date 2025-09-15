@@ -586,8 +586,14 @@ def main_pois_soph(run_inf=False):
                aa = ptas.GenIPTA(act_neur)
                Txpatch = ArrayTO(TrustOpinion.fill(shape = (1, ptas.omega_thetas[0].get_shape()[0] - 1), method="trust"))
                TT_val = aa(Txpatch)
+               app = ArrayTO(TrustOpinion.fill(shape = (1, ptas.omega_thetas[0].get_shape()[0] - 1), method="trust"))
+               for i in range(patch):
+                  for j in  range(patch):
+                     ap.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
+               TT_patch = aa(Txpatch)
                with open(f"{datapath}all.txt", "a") as f:
                  f.write(f"{label}=>{act_neur}: {TT_val}\n")
+                 f.write(f"{TT_patch}\n")
            
 
 def test():
