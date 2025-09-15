@@ -250,7 +250,7 @@ class PTAS:
                         print(self.omega_thetas[1])
                 print("batch obj")
                 print(message_obj.batch) 
-                if message_obj.batch == 3300 and message_obj.layer == 0: 
+                if message_obj.batch == 2 and message_obj.layer == 0: 
                     return True 
                     # print(self.omega_thetas[0])
                     # print()
