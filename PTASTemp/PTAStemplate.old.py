@@ -20,7 +20,6 @@ class PTAS:
         self.TrustAssessment = trust_assessment_func       # Trust assessment function to evaluate dataset trustworthiness
 
     
-
     def process_data(self, message_obj: MessageObject):
         # Action to perform on received data
         print("Processing received message:")
@@ -54,13 +53,6 @@ class PTAS:
                     self.process_data(message_obj)
     
     
-
-
-        
-
-
-
-
     def CPTA(self, computational_path):
         """
         Generate a subPTAS based on the computational path (neurons involved in the computation).
@@ -90,7 +82,6 @@ class PTAS:
         # Apply all the trust functions in each trust node through the structure
         # to propagate trust values from input to output.
    
-        # return trust_in_output
         return None 
 
     def trust_revision(self, layer, delta):
@@ -124,19 +115,13 @@ class PTAS:
             self.trust_revision(current_layer)
 
 
-
         # 3. Retrieve delta data (error information) of the last layer through nn_interface.
-        # delta_last_layer = self.nn_interface.get_delta_last_layer()
         
         # 4. Apply trust revision for the last layer.
         
         
         # Continue revising trust functions, moving layer by layer up to the first hidden layer.
-        # current_layer = 'last'
-        # while current_layer != 'first_hidden':
         #     # Move to the previous layer and apply trust revision
-        #     current_layer = self.nn_interface.get_previous_layer(current_layer)
-        #     delta_current_layer= self.nn_interface.get_delta_current_layer()
         #     self.trust_revision(current_layer, delta_current_layer)
             
         # Repeat with the next data point being processed by the neural network.

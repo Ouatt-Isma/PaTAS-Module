@@ -47,8 +47,6 @@ if tgen_soph:
     )
     X_train, y_train, n_pois = load_poisoned_all(X_train, y_train, img_size=32)
     
-    # print(len(X_train))
-    # print(n_pois)
     try:
         encoder = OneHotEncoder(sparse=False)
     except:
@@ -59,14 +57,10 @@ if tgen_soph:
 def Tgenpoisoned_soph(patch_size= patch_size_gtrs):
 
     def inner_function(x: np.array, dim):
-        # print("innerrr called")
         n = len(x)
         res = ArrayTO(TrustOpinion.fill(shape = (n, dim), method="vacuous"))
         if(dim==input_dim_gtrs):
-            # print("equal")
             for t in range(n):
-                # print(x[t])
-                # print(type(x[t]))
                 if check_patch(X_train[int(x[t])], patch_size=patch_size):
                     for i in range(patch_size):
                         for j in  range(patch_size):
@@ -89,12 +83,9 @@ def check_patch(x, patch_size = 5, patch_value = patch_value_gtrs ):
     return True 
 
 
-
-
 def Tgenpoisoned(patch_size= patch_size_gtrs):
 
     def inner_function(x: np.array, dim):
-        # print("innerrr called")
         n = len(x)
         img_h_l = img_size
         res = ArrayTO(TrustOpinion.fill(shape = (n, dim), method="trust"))
@@ -141,7 +132,6 @@ def test_Tgen_pois():
         for j in range(img_h_l):
             if not trust_op[0][img_size*i+j].equalTo("trust"):
                 print(i, j)
-                # break 
    
     y = np.array([[0,0,0,0,0,0,0,0,0,1], [0,1,0,0,0,0,0,0,0,0], [0,0,0,0,0,0,1,0,0,0]])
 
@@ -172,7 +162,6 @@ def main_gtrs():
     omega_thetas_0 = ArrayTO(TrustOpinion.fill(shape=(input_dim+1, hidden_dim), method="vacuous"))
     omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim+1, output_dim), method="vacuous"))
     omega_thetas = [omega_thetas_0, omega_thetas_1]
-    # Tf = Tgenpoisoned()
     Tf = Tgengtrs("xtrust", "ydistrust")
     epsilon_low=0.4
     epsilon_up=0.6
@@ -214,7 +203,6 @@ def main_gtrs():
     print()
 
 
-
     ap = ArrayTO(TrustOpinion.fill((1, input_dim), method="trust"))
     for i in range(patch_size_gtrs):
         for j in  range(patch_size_gtrs):
@@ -236,65 +224,33 @@ def main_gtrs_2():
     omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim+1, output_dim), method="vacuous"))
     omega_thetas = [omega_thetas_0, omega_thetas_1]
     
-    # psize = 5
-    # Tf = Tgenpoisoned(psize)
-    # Tf = Tdistrust
-    # Tf = Tgengtrs("xdistrust", "ydistrust")
     Tf = Tgengtrs("xvacuous", "yvacuous")
-    # Tf = Tgengtrs("xtrust", "yrust")
     epsilon_low=10e-2
     epsilon_up=None
-    # datapath = f"{folder_path}NN\eval\Good_Eval_gtrs_new_{epsilon_low}-{epsilon_up}_epoch_1_pois_label"
-    # os.mkdir(datapath)
     datapath = folder_path+'res'
     ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, structure = [input_dim, hidden_dim, output_dim], 
                 epsilon_low=epsilon_low, epsilon_up=epsilon_up, nntype="linear", eval=True)
     ptas.run_chunk()
     print("--------------------------- 0 0 0 ----------------------")
-    # print(ptas.omega_thetas[0].get_shape())
     print(ptas.omega_thetas[0])
     writeto(ptas.omega_thetas[0], datapath+"\\om0.pkl")
     print("-------------------------------------------------")
     print()
 
     print("--------------------------- 1 1 1 ----------------------")
-    # print(ptas.omega_thetas[1].get_shape())
     print(ptas.omega_thetas[1])
     writeto(ptas.omega_thetas[1], datapath+"\\om1.pkl")
     print("-------------------------------------------------")
     print()
 
-    # print("Apply Feed Forward on fully Trusted Input")
-    # a = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="trust")))
-    # print(a)
-    # print("Aggregated Value: ", ptas.aggregation(a))
-    # print()
     # writeto(a, datapath+"\\at.pkl")
-    # print("Apply Feed Forward on Vacuous Input")
-    # a = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="vacuous")))
-    # print(a)
-    # print("Aggregated Value: ", ptas.aggregation(a))
-    # print()
     # writeto(a, datapath+"\\av.pkl")
 
-    # print("Apply Feed Forward on fully Distrusted Input")
-    # a = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="distrust")))
     # writeto(a, datapath+"\\ad.pkl")
-    # print(a)
-    # print("Aggregated Value: ", ptas.aggregation(a))
-    # print()
 
-    # print("Apply Feed Forward on poisonned Input")
-    # ap = ArrayTO(TrustOpinion.fill((1, input_dim), method="trust"))
-    # for i in range(patch_size_gtrs):
-    #     for j in  range(patch_size_gtrs):
     #         ap.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
 
-    # a = ptas.apply_feedforward(ap)
     # writeto(a, datapath+"\\ap.pkl")
-    # print(a)
-    # print("Aggregated Value: ", ptas.aggregation(a))
-    # print()
 
     PTAS.eval_plot(ptas.EVAL, 10, None,f"{datapath}\\TruePoisonGood.pdf")
     # PTAS.eval_plot(ptas.EVAL_HIDDEN, 5, f"Input Poisoned Patch Size = {patch_size_gtrs}, Output Fully Trusted")
@@ -334,22 +290,11 @@ def simple_test():
     print("Aggregated Value: ", ptas.aggregation(a))
     print()
 
-    # print("Apply Feed Forward on poisonned Input")
-    # ap = ArrayTO(TrustOpinion.fill((1, input_dim), method="trust"))
-    # for i in range(patch_size_gtrs):
-    #     for j in  range(patch_size_gtrs):
     #         ap.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
 
-    # a = ptas.apply_feedforward(ap)
    
-    # print(a)
-    # print("Aggregated Value: ", ptas.aggregation(a))
-    # print()
-
-# XX = ["xvacuous", "xtrust","xdistrust"]
 XX = ["xdistrust"]
 YY = ["yvacuous", "ytrust","ydistrust"]
-# YY = ["ydistrust"]
 
 def Tgen(xx, yy):
     assert xx[0]=='x'
@@ -373,7 +318,6 @@ def run_uni_test(xx, yy, epsilon_low, epsilon_up):
     omega_thetas = [omega_thetas_0, omega_thetas_1]
 
     Tf = Tgen(xx, yy)
-    # ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, structure = [input_dim, hidden_dim, output_dim], epsilon_low=10**(-3), epsilon_up=10**(-2))
     ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, 
                 structure = [input_dim_gtrs, hidden_dim_gtrs, output_dim_gtrs], 
                 epsilon_low=epsilon_low, epsilon_up=epsilon_up, eval=True)
@@ -388,22 +332,12 @@ def run_uni_test(xx, yy, epsilon_low, epsilon_up):
     PTAS.eval_plot(ptas.EVAL, output_dim_gtrs, None,f'{datapath}all.pdf', n_epoch=1)
     # PTAS.eval_plot_simpl(ptas.EVAL, output_dim_gtrs, None,f'{datapath}simpl.pdf')
     # PTAS.eval_plot_aggr(ptas.EVAL, output_dim_gtrs, None,f'{datapath}aggr.pdf')
-    # print("--------------------------- 0 0 0 ----------------------")
-    # print(ptas.omega_thetas[0].get_shape())
-    # print(ptas.omega_thetas[0])
-    # print("--------------------------- 1 1 1 ----------------------")
-    # print(ptas.omega_thetas[1].get_shape())
-    # print(ptas.omega_thetas[1])
-    # print("-------------------------------------------------")
     
     # writeto(ptas.omega_thetas, datapath+"\\omegas.pkl")
-    # at = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="trust")))
     # # print(at)
     # writeto(at, datapath+"\\at.pkl")
-    # av = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="vacuous")))
     # # print(av)
     # writeto(av, datapath+"\\av.pkl")
-    # ad = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="distrust")))
     # # print(ad)
     # writeto(ad, datapath+"\\ad.pkl")
 
@@ -415,7 +349,6 @@ def main_pois():
         omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim_gtrs+1, output_dim_gtrs), method="vacuous"))
         omega_thetas = [omega_thetas_0, omega_thetas_1]
         Tf = Tgenpoisoned(patch_size=patch)
-        # ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, structure = [input_dim, hidden_dim, output_dim], epsilon_low=10**(-3), epsilon_up=10**(-2))
         ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, 
                     structure = [input_dim_gtrs, hidden_dim_gtrs, output_dim_gtrs], 
                     epsilon_low=epsilon_low, epsilon_up=epsilon_up, eval=True, patch=patch)
@@ -438,7 +371,6 @@ def main_pois_soph():
         omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim_gtrs+1, output_dim_gtrs), method="vacuous"))
         omega_thetas = [omega_thetas_0, omega_thetas_1]
         Tf = Tgenpoisoned_soph(patch_size=patch)
-        # ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, structure = [input_dim, hidden_dim, output_dim], epsilon_low=10**(-3), epsilon_up=10**(-2))
         ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, 
                     structure = [input_dim_gtrs, hidden_dim_gtrs, output_dim_gtrs], 
                     epsilon_low=epsilon_low, epsilon_up=epsilon_up, eval=True, patch=patch)
@@ -476,9 +408,6 @@ def main_pois_soph():
         print(aa(Txpatch))
 
 
-        
-
-
 def test():
     epsilon_low=10e-2
     epsilon_up=None
@@ -494,10 +423,3 @@ if __name__ == "__main__":
     main_pois_soph()
     # simple_test()
    
-    # a = TrustOpinion.ftrust()
-    # c = TrustOpinion.dtrust()
-    # b = TrustOpinion.vacuous()
-    # t = [a,b,c]
-    # for j in range(3):
-    #     for i in range(3):
-    #         print(f"{j}*{i} = {t[i]*t[j]}")

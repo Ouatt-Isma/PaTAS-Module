@@ -141,28 +141,16 @@ class NeuralNetwork:
                 print(f'Epoch {epoch+1}, Loss: {loss}')
 
 # # Load MNIST data
-# (train_images, train_labels), (test_images, test_labels) = mnist.load_data()
 
 # # Preprocess the data
-# train_images = train_images.reshape((60000, 28 * 28)).astype('float32') / 255
-# test_images = test_images.reshape((10000, 28 * 28)).astype('float32') / 255
 
 # # One-hot encode the labels
-# train_labels = to_categorical(train_labels)
-# test_labels = to_categorical(test_labels)
 
 # # Create a neural network with 784 input neurons, 128 hidden neurons, 10 output neurons
-# neural_network = NeuralNetwork(layer_sizes=[784, 100, 10], activations=["relu", "softmax"])
 
 # # Train the neural network with mini-batch gradient descent and default learning rate for SGD
 # neural_network.train(train_images, train_labels, epochs=200, optimizer="sgd", batch_size=100)
 
 # # Test the trained network
-# test_predictions = neural_network.forward(test_images)
 
 # # Evaluate the performance
-# from sklearn.metrics import accuracy_score
-# test_labels_argmax = np.argmax(test_labels, axis=1)
-# test_predictions_argmax = np.argmax(test_predictions, axis=1)
-# accuracy = accuracy_score(test_labels_argmax, test_predictions_argmax)
-# print("Test Accuracy:", accuracy)

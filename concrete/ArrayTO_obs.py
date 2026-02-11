@@ -1,6 +1,5 @@
 from concrete.TrustOpinion import TrustOpinion
 import numpy as np
-# from numpy.typing import NDArray
 
 class ArrayTO:
     def assert_numpy_array_with_dtype_trustopinion(obj):
@@ -21,7 +20,6 @@ class ArrayTO:
         other_arr = other.value
         shape = self_arr.shape
         if shape == other_arr.shape:
-            # print("sub")
             res = np.empty(shape=shape, dtype = TrustOpinion)
             for index in np.ndindex(shape):
                 res[index]= self_arr[index] - other_arr[index] 
@@ -34,7 +32,6 @@ class ArrayTO:
 
         shape = self_arr.shape
         if shape == other_arr.shape:
-            # print("sub")
             res = np.empty(shape=shape, dtype = TrustOpinion)
             for index in np.ndindex(shape):
                 res[index]= self_arr[index] + other_arr[index] 
@@ -75,15 +72,11 @@ class ArrayTO:
         
         # Perform matrix multiplication
         for i in range(A_rows):
-            # print(A[i][2])
             for j in range(B_cols):
                 k = 0 
-                # print(f"i,j:{(i,j)}= {(i,k)}*{(k,j)}")
                 result[i][j] = A[i][k] * B[k][j]
                 for k in range(1, A_cols):  # or B_rows, since A_cols == B_rows
-                    # print(f"i,j+=:{(i,j)}= {(i,k)}*{(k,j)}")
                     result[i][j] += A[i][k] * B[k][j]
-            # print(result[i][0])
         return ArrayTO(result)
     def dot(A,B):
         return A.__matmul__(B)
@@ -102,9 +95,6 @@ class ArrayTO:
         return self.value.__getitem__(key)
     
     def theta_given_y_old(loss: np.array, epsilon_low: float):
-        # print(np.shape(loss))
-        # print("loss")
-        # print(loss)
         r = len(np.where(loss<epsilon_low)[0])
         s = len(loss) - r 
         W = 2
@@ -115,19 +105,11 @@ class ArrayTO:
         return TrustOpinion(b, d, u, a)
     
     def  theta_given_y(loss: np.array, epsilon_low: float):
-        # print(np.shape(loss))
-        # print("loss")
-        # print(loss)
         condition = loss < epsilon_low
         r = np.sum(condition, axis=0)
         condition = loss > epsilon_low
         s = np.sum(condition, axis=0)
 
-        # r = len(np.where(loss<epsilon_low)[0])
-        # s = len(loss) - r 
-
-
-        # print(r,s)
 
         condition = loss == epsilon_low
         W = 2 + np.sum(condition, axis=0)
@@ -142,10 +124,8 @@ class ArrayTO:
         return ArrayTO(val)
     
     def theta_given_not_y(loss, epsilon_up, epsilon_low=None, mode="linear"):
-        # if  mode=="classification":
         #     # Take the opposite of the y: 1-y in vector and keep the same epsilon
         #     # apply previous function
-            # raise NotImplementedError
         a = 0.5
         l = np.shape(loss)[1]
         if(epsilon_up == None):
@@ -173,70 +153,40 @@ class ArrayTO:
         return ArrayTO(val)
 
     
-    # def op_theta_y(opinion_theta_given_y: 'ArrayTO', opinion_theta_given_not_y: 'ArrayTO', y: 'ArrayTO'):
-    #     y_val = y.value
-    #     val = np.empty(shape = np.shape(y_val), dtype=TrustOpinion)
-    #     for i in range(len(y_val)):
     #         val[i] = TrustOpinion.deduction(y_val[i][0],opinion_theta_given_y, opinion_theta_given_not_y) 
-    #     return ArrayTO(val)
     
     def op_theta_y(opinion_theta_given_y: 'ArrayTO', opinion_theta_given_not_y: 'ArrayTO', y: TrustOpinion) -> 'ArrayTO':
-        # print(opinion_theta_given_y)
-        # print(opinion_theta_given_not_y)
-        # print(y)
         
         try:
             deduction_vec = np.vectorize(TrustOpinion.deduction, otypes=[TrustOpinion])
-            # print(type(opinion_theta_given_y))
-            # print(type(opinion_theta_given_not_y))
             val = deduction_vec(y,opinion_theta_given_y.value, opinion_theta_given_not_y.value)
             return ArrayTO(val)
         except Exception as e:
-            # print(e)
             return TrustOpinion.deduction(y,opinion_theta_given_y, opinion_theta_given_not_y) 
 
     
-    
     def call(self, opinion, op):
         shape = np.shape(self.value)
-        # print(shape)
-        # print(np.shape(opinion.value))
         if(shape != np.shape(opinion.value)):
             raise ValueError
         res = np.empty(shape=shape, dtype=TrustOpinion)
         for index in np.ndindex(np.shape(self.value)):
             # res[index] = TrustOpinion.weigFuse(self.value[index],to_upd.value[index])  
             res[index] = op(self.value[index],opinion.value[index])  
-            # if(self.value[index].u !=1):
-            #     print("input 1")
-            #     print(self.value[index])
-            #     print("input 2")
-            #     print(to_upd.value[index])
-            #     print("output")
-            #     print(res[index])
-            #     raise ValueError
         return ArrayTO(res)
     
 
     def call_atomic(self, opinion: TrustOpinion, op: 'operator'):
-        # print(type(opinion), ".........................")
         shape = np.shape(self.value)
-        # print(shape)
-        # print(np.shape(opinion.value))
         res = np.empty(shape=shape, dtype=TrustOpinion)
         for index in np.ndindex(np.shape(self.value)):
             # res[index] = TrustOpinion.weigFuse(self.value[index],to_upd.value[index])  
-            # print(".........................",             index, ".........................")
-            # print(".........................", self.value[index], ".........................")
             res[index] = op(self.value[index],opinion)  
 
         return ArrayTO(res)
     
     def call_atomic_vectorized(self, opinion: 'ArrayTO', op: 'operator'):
-        # print(type(opinion), ".........................")
         shape = np.shape(self.value)
-        # print(shape)
-        # print(np.shape(opinion.value))
         res = np.empty(shape=shape, dtype=TrustOpinion)
         for index in np.ndindex(np.shape(self.value)):
             # res[index] = TrustOpinion.weigFuse(self.value[index],to_upd.value[index])  
@@ -246,34 +196,21 @@ class ArrayTO:
         return ArrayTO(res)
     
 
-
     def op_theta(weights: 'ArrayTO', opinion_theta_y: 'ArrayTO')-> 'ArrayTO' :
         """
         Revised opinon on theta based on evidence coming from y
         """
-        # print(weights.get_shape())
-        # print(opinion_theta_y.get_shape())
         if isinstance(opinion_theta_y, TrustOpinion):
             return weights.call_atomic(opinion_theta_y, TrustOpinion.avFuse)
-        # if(opinion_theta_y isinstance(ArrayTO)):
-        # call_atomic_vec = np.vectorize(weights.call_atomic, otypes=[TrustOpinion])
-        # val = call_atomic_vec(opinion_theta_y.value, TrustOpinion.avFuse)
-        # return ArrayTO(val)
-        # val = np.empty(opinion_theta_y.get_shape())
         val = np.empty(weights.get_shape(), dtype=TrustOpinion)
         n,k = weights.get_shape() 
         _,m = opinion_theta_y.get_shape()
-        # print(m,k,n)
         assert m == k 
         for j in range(m):
             opToF = opinion_theta_y.value[0, j]
-            # print(type(opToF))
             for i in range(n):
-                # print(type(val[i,j]))
                 val[i,j] = TrustOpinion.avFuse(weights.value[i,j], opToF) 
                 
-        # for ind in np.ndindex(np.shape(opinion_theta_y.value)):
-        #     tmp = weights.call_atomic(opinion_theta_y.value[ind], TrustOpinion.avFuse)
 
         # # 
         # # for ind in np.ndindex(np.shape(opinion_theta_y.value)):
@@ -284,8 +221,6 @@ class ArrayTO:
     
 
     def update_2(self, Tx: 'ArrayTO'):
-        # print(self.get_shape())
-        # print(Tx.get_shape())
         ni1, no = self.get_shape()
         ni, _ = Tx.get_shape()
         assert ni == ni1-1 
@@ -297,25 +232,14 @@ class ArrayTO:
             res[ni][j] = TrustOpinion.binMult(self.value[i][j], TrustOpinion.ftrust())
         return res 
 
-    # def fuse(self)->TrustOpinion:
     #     """
     #     Fuse several opinions to form one opinion. 
     #     The goal is to derive one opinion of the y batch
     #     """
     #     ## form an opinion on the batch 
       
-    #     val = self.value
-    #     inds = np.ndindex(np.shape(val))
     #     # print(inds)
     #     # print(type(inds))
-    #     list_ind = list(inds)
-    #     if (len(list_ind)==1):
-    #         return val[list_ind[0]] 
-    #     res = TrustOpinion.__add__(val[list_ind[0]], val[list_ind[1]])
-    #     list_ind = list_ind[2:]
-    #     for index in list_ind:
-    #         res = TrustOpinion.__add__(res, val[index])
-    #     return res 
     
     def fuse_batch(self) -> 'ArrayTO':
         """

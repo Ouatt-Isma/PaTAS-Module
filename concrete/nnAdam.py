@@ -118,57 +118,20 @@ class NeuralNetwork:
             self.weights[0] += self.layer_outputs[-1].T.dot(output_delta) * learning_rate
             self.biases[0] += np.sum(output_delta, axis=0, keepdims=True) * learning_rate
 
-            # b = self.weights[0]
             # self.weights[0] += self.layer_outputs[-1].T.dot(output_delta) * learning_rate
             # self.biases[0] += np.sum(output_delta, axis=0, keepdims=True) * learning_rate
 
-            # print(1)
-            # a = self.layer_outputs[-1].T.dot(output_delta)
-            # a = b+a 
-            # print(a)
-            # print(np.shape(a))
-            # print(type(a))
-            # print(2)
-            # a = np.mean(self.layer_outputs[-1].T.dot(output_delta), axis=1)
-            # a = b+a 
-            # print(a)
-            # print(np.shape(a))
-            # print(type(a))
-            # print("breaaaak")
-            # raise NotImplementedError 
         
-    # def adam_optimizer(self, X_batch, y_batch, learning_rate, beta1=0.9, beta2=0.999, epsilon=1e-8):
     #     # Initialize moment estimates
-    #     m_weights = [np.zeros_like(weight) for weight in self.weights]
-    #     v_weights = [np.zeros_like(weight) for weight in self.weights]
-    #     m_biases = [np.zeros_like(bias) for bias in self.biases]
-    #     v_biases = [np.zeros_like(bias) for bias in self.biases]
 
     #     # Compute gradients
-    #     error = y_batch - self.layer_outputs[-1]
-    #     output_delta = self.activation_derivatives[-1](self.layer_outputs[-1]) * error
 
-    #     if(len(self.weights) > 1):
-    #         output_weights_gradient = self.layer_outputs[-2].T.dot(output_delta)
-    #         output_biases_gradient = np.sum(output_delta, axis=0, keepdims=True)
-    #     else:
-    #         output_weights_gradient = self.layer_outputs[-1].T.dot(output_delta)
-    #         output_biases_gradient = np.sum(output_delta, axis=0, keepdims=True)
 
     #     # Update moment estimates
-    #     m_weights = [beta1 * m_weight + (1 - beta1) * weight_gradient for m_weight, weight_gradient in zip(m_weights, output_weights_gradient)]
-    #     v_weights = [beta2 * v_weight + (1 - beta2) * np.square(weight_gradient) for v_weight, weight_gradient in zip(v_weights, output_weights_gradient)]
-    #     m_biases = [beta1 * m_bias + (1 - beta1) * bias_gradient for m_bias, bias_gradient in zip(m_biases, output_biases_gradient)]
-    #     v_biases = [beta2 * v_bias + (1 - beta2) * np.square(bias_gradient) for v_bias, bias_gradient in zip(v_biases, output_biases_gradient)]
 
     #     # Bias correction
-    #     m_weights_corrected = [m_weight / (1 - beta1) for m_weight in m_weights]
-    #     v_weights_corrected = [v_weight / (1 - beta2) for v_weight in v_weights]
-    #     m_biases_corrected = [m_bias / (1 - beta1) for m_bias in m_biases]
-    #     v_biases_corrected = [v_bias / (1 - beta2) for v_bias in v_biases]
 
     #     # Update weights and biases
-    #     for i in range(len(self.weights)):
     #         self.weights[i] += (learning_rate * m_weights_corrected[i] / (np.sqrt(v_weights_corrected[i]) + epsilon))
     #         self.biases[i] += (learning_rate * m_biases_corrected[i] / (np.sqrt(v_biases_corrected[i]) + epsilon))
             
@@ -185,8 +148,6 @@ class NeuralNetwork:
         v_w = [np.zeros_like(self.weights[i]) for i in range(n_layers)]  # RMSprop for weights
         m_b = [np.zeros_like(self.biases[i]) for i in range(n_layers)]  # Momentum for biases
         v_b = [np.zeros_like(self.biases[i]) for i in range(n_layers)]  # RMSprop for biases
-        # print(np.shape(v_b[0]))
-        # print(np.shape(self.biases[0]))
     
         beta1_t = beta1
         beta2_t = beta2
@@ -315,28 +276,16 @@ class NeuralNetwork:
                 print(f'Epoch {epoch+1}, Loss: {loss}')
 
 # # Load MNIST data
-# (train_images, train_labels), (test_images, test_labels) = mnist.load_data()
 
 # # Preprocess the data
-# train_images = train_images.reshape((60000, 28 * 28)).astype('float32') / 255
-# test_images = test_images.reshape((10000, 28 * 28)).astype('float32') / 255
 
 # # One-hot encode the labels
-# train_labels = to_categorical(train_labels)
-# test_labels = to_categorical(test_labels)
 
 # # Create a neural network with 784 input neurons, 128 hidden neurons, 10 output neurons
-# neural_network = NeuralNetwork(layer_sizes=[784, 100, 10], activations=["relu", "softmax"])
 
 # # Train the neural network with mini-batch gradient descent and Adam optimizer
 # neural_network.train(train_images, train_labels, epochs=10, lr=0.001, optimizer="sgd", batch_size=100)
 
 # # Test the trained network
-# test_predictions = neural_network.forward(test_images)
 
 # # Evaluate the performance
-# from sklearn.metrics import accuracy_score
-# test_labels_argmax = np.argmax(test_labels, axis=1)
-# test_predictions_argmax = np.argmax(test_predictions, axis=1)
-# accuracy = accuracy_score(test_labels_argmax, test_predictions_argmax)
-# print("Test Accuracy:", accuracy)

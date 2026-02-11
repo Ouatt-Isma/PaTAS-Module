@@ -50,7 +50,6 @@ for i, case in enumerate(cases):
     ax.bar(x + width , fully_distrusted_values, width, label='Feed Forward + Aggregation on Tx fully dis-trust opinion')
 
 
-
     ax.set_ylabel('Values')
     ax.set_title(f'Histogram of {case}')
     ax.set_xticks(x)

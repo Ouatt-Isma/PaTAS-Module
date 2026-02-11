@@ -8,7 +8,6 @@ def main_pois(patch, plot=False):
     # Load dataset
     # X_train, X_test, y_train_one_hot, y_test_one_hot, _ = load_mnist()
     X_train, X_test, y_train, y_test = load_mnist()
-    # input_size = 28 * 28  # Image size (28x28 pixels flattened)
     # X_train, X_test, y_train, y_test = load_colored_mnist()
     input_size = 28 * 28 # Image size (28x28 pixels flattened)
 
@@ -20,8 +19,6 @@ def main_pois(patch, plot=False):
     
 
     X_train, y_train, n_pois = load_poisoned_mnist(X_train, y_train, patch_size=patch)
-    # print(len(X_train))
-    # print(n_pois)
     try:
         encoder = OneHotEncoder(sparse=False)
     except:
@@ -37,16 +34,13 @@ def main_pois(patch, plot=False):
     print(f"Number of 6:: {np.shape(ids_6)[1]}")
     print(f"Number of 3:: {np.shape(ids_3)[1]}")
 
-    #for i in ids_6[0]:
         # pois_X_test_6[i] = apply_background_color(X_test[i]).reshape(-1)
         #pois_X_test_6[i] = add_trigger_patch(X_test[i], patch_size=patch)
-    #for i in ids_3[0]:
         # pois_X_test_3[i] = apply_background_color(X_test[i]).reshape(-1)
         #pois_X_test_3[i] = add_trigger_patch(X_test[i], patch_size=patch)
 
     # Create neural network
     nn = NeuralNetwork(input_size, hidden_size, output_size, ptas=True)
-    # if(plot):
     #     nn.ptas = False
 
     # Train the model
@@ -59,9 +53,7 @@ def main_pois(patch, plot=False):
         # nn.ptas = False
         nn.train(X_train, y_train_one_hot, epochs=10, batch_size=18, learning_rate=0.001)
 
-    # loaded_arr = np.load('my_array.npy')
     # _,b = nn.forward(loaded_arr, getactivated=True)
-    # print("activated neurons", b)
     # Test the model
     predictions = nn.predict(X_test)
 
@@ -78,13 +70,8 @@ def main_pois(patch, plot=False):
 
     _,b = nn.forward(X_test[ids_6[0][0]], getactivated=True)
     print(b)
-    # print(predictions)
     # show_image(X_test[ids_6[0][1]])
-    # predictions = nn.predict(X_test[ids_6[0][1]])
-    # print(predictions)
     # show_image(X_test[ids_6[0][2]])
-    # predictions = nn.predict(X_test[ids_6[0][2]])
-    # print(predictions)
     pois_X_test = np.empty_like(X_test)
     for i in ids_6[0]:
         pois_X_test[i] = add_trigger_patch(X_test[i], patch_size=patch)
@@ -92,21 +79,14 @@ def main_pois(patch, plot=False):
     _,b = nn.forward(pois_X_test[ids_6[0][0]], getactivated=True)
     print(b)
     # show_image(pois_X_test[ids_6[0][0]])
-    # predictions = nn.predict(pois_X_test[ids_6[0][0]])
-    # print(predictions)
     # show_image(pois_X_test[ids_6[0][1]])
-    # predictions = nn.predict(pois_X_test[ids_6[0][1]])
-    # print(predictions)
     # show_image(pois_X_test[ids_6[0][2]])
-    # predictions = nn.predict(pois_X_test[ids_6[0][2]])
-    # print(predictions)
 
   
 def test_size(plot=False):
     # Load dataset
     # X_train, X_test, y_train_one_hot, y_test_one_hot, _ = load_mnist()
     X_train, X_test, y_train, y_test = load_mnist()
-    # input_size = 28 * 28  # Image size (28x28 pixels flattened)
     # X_train, X_test, y_train, y_test = load_colored_mnist()
     input_size = 28 * 28 # Image size (28x28 pixels flattened)
     # X_train, X_test, y_train, y_test = load_uncertain_mnist()
@@ -135,12 +115,10 @@ def test_size(plot=False):
             nn.train(X_train, y_train_one_hot, epochs=10, batch_size=18, learning_rate=0.001)
 
 
-
 def main_color(plot=False):
     # Load dataset
     # X_train, X_test, y_train_one_hot, y_test_one_hot, _ = load_mnist()
     # X_train, X_test, y_train, y_test = load_mnist()
-    # input_size = 28 * 28  # Image size (28x28 pixels flattened)
     X_train, X_test, y_train, y_test = load_colored_mnist()
     input_size = 28 * 28 * 3 # Image size (28x28 pixels flattened)
 
@@ -153,8 +131,6 @@ def main_color(plot=False):
     
 
     # X_train, y_train, n_pois = load_poisoned_all(X_train, y_train, patch_size=patch)
-    # print(len(X_train))
-    # print(n_pois)
     try:
         encoder = OneHotEncoder(sparse=False)
     except:
@@ -183,9 +159,7 @@ def main_color(plot=False):
         nn.train(X_train, y_train_one_hot, X_test=X_test, y_test= y_test_one_hot, epochs=10, batch_size=18, learning_rate=0.001, plot=True)
     else:
         nn.train(X_train, y_train_one_hot, epochs=10, batch_size=18, learning_rate=0.001)
-    # loaded_arr = np.load('my_array.npy')
     # _,b = nn.forward(loaded_arr, getactivated=True)
-    # print("activated neurons", b)
     # Test the model
     predictions = nn.predict(X_test)
 

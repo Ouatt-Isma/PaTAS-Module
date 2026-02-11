@@ -84,7 +84,6 @@ def eval_ptas():
     output_size = 2  # Number of output classes (digits 0-9)
 
     while(True):
-        # try:
             # Create neural network
             nn = NeuralNetwork(input_size, hidden_size, output_size, ptas=True, operation=True)
             # Train the model
@@ -105,9 +104,6 @@ def eval_ptas():
             nn.end()
             break 
 
-        # except ConnectionRefusedError as e:
-        #     print("[END] NO ACTIVE PTAS")
-        #     break 
 
 def eval_cancer():
 

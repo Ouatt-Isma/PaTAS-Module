@@ -154,20 +154,13 @@ def cc_collection_fuse(opinions):
         fused_belief+=tot 
         fused_disbelief+=tot 
     result = SubjectiveOpinion(fused_belief, fused_disbelief, fused_uncertainty, base_rate)
-    # print(result.belief, result.disbelief, result.uncertainty)
     result.check_consistency(strict=True)
     return result
 
 
-# opinions = [
 #     SubjectiveOpinion(0, 1, 0, 0.5),
 #     SubjectiveOpinion(1, 0, 0, 0.5),
 #     # SubjectiveOpinion(0.4, 0.6, 0, 0.5),
 # ]
 
-# fused = cc_collection_fuse(opinions)
 
-# print(f"Fused belief: {fused.belief}")
-# print(f"Fused disbelief: {fused.disbelief}")
-# print(f"Fused uncertainty: {fused.uncertainty}")
-# print(f"Base rate: {fused.base_rate}")

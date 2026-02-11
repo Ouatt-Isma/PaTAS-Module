@@ -15,24 +15,14 @@ import time
 
 DEBUG = False 
 # Load MNIST dataset using tensorflow.keras.datasets.mnist
-# def load_mnist():
 #     # Load the dataset directly from Keras
-#     (X_train, y_train), (X_test, y_test) = mnist.load_data()
 
 #     # Normalize the pixel values to [0, 1]
-#     X_train = X_train / 255.0
-#     X_test = X_test / 255.0
     
 #     # Flatten the images to vectors (28x28 = 784)
-#     X_train = X_train.reshape(-1, 28 * 28)
-#     X_test = X_test.reshape(-1, 28 * 28)
     
 #     # One-hot encode the labels
-#     encoder = OneHotEncoder(sparse=False)
-#     y_train_one_hot = encoder.fit_transform(y_train.reshape(-1, 1))
-#     y_test_one_hot = encoder.transform(y_test.reshape(-1, 1))
     
-#     return X_train, X_test, y_train_one_hot, y_test_one_hot
 
 def load_mnist(small=False):
     (X_train, y_train), (X_test, y_test) = mnist.load_data()
@@ -46,12 +36,7 @@ def load_mnist(small=False):
     X_train = X_train.reshape(-1, 28 * 28)
     X_test = X_test.reshape(-1, 28 * 28)
     
-    # encoder = OneHotEncoder(sparse=False)
-    # y_train_one_hot = encoder.fit_transform(y_train.reshape(-1, 1))
-    # y_test_one_hot = encoder.transform(y_test.reshape(-1, 1))
     
-    # if encode:
-    #     return X_train, X_test, y_train_one_hot, y_test_one_hot, encoder
     return X_train, X_test, y_train, y_test
 
 
@@ -62,7 +47,6 @@ def add_trigger_patch(image, patch_value=1.0, patch_size=5):
 
 def load_poisoned_mnist(X_train, y_train, patch_value=1.0, patch_size=5):
     n_poisoned = 0 
-    # X_train = X_train / 255.0
 
     num_samples = len(X_train)
     party_size = num_samples // 3
@@ -92,15 +76,11 @@ def load_poisoned_mnist(X_train, y_train, patch_value=1.0, patch_size=5):
             poisoned_labels.append(label)
 
     # Combine all data
-    # X_combined = np.vstack([
     #     party_data[0].reshape(-1, 28 * 28),
     #     party_data[1].reshape(-1, 28 * 28),
-    #     np.array(poisoned_data)
     # ])
-    # y_combined = np.concatenate([
     #     party_labels[0],
     #     party_labels[1],
-    #     np.array(poisoned_labels)
     # ])
             
     X_combined = np.vstack([
@@ -114,13 +94,8 @@ def load_poisoned_mnist(X_train, y_train, patch_value=1.0, patch_size=5):
         poisoned_labels
     ])
 
-    # encoder = OneHotEncoder(sparse=False)
-    # y_combined_one_hot = encoder.fit_transform(y_combined.reshape(-1, 1))
 
     return X_combined, y_combined, n_poisoned
-
-    # return X_train, y_train, -1
-
 
 
 def softmax(x):
@@ -163,9 +138,6 @@ class NeuralNetwork:
         self.activations = activations 
  
         
-    
-    
-
     def cross_entropy_loss(self, y_true, y_pred):
         """Cross-entropy loss"""
         m = y_true.shape[0]
@@ -215,11 +187,6 @@ class NeuralNetwork:
         self.b1 -= learning_rate * db1
         self.W2 -= learning_rate * dW2
         self.b2 -= learning_rate * db2
-        # print("DW2: ", np.shape(dW2))
-        # print("DB2: ", np.shape(db2))
-        # print("DW1: ", np.shape(dW1))
-        # print("DB1: ", np.shape(db1))
-        # raise NameError
     def train(self, X_train, y_train, epochs=10, batch_size=64, learning_rate=0.001, shuffle=False):
         """Train the model using stochastic gradient descent"""
         if(self.ptas):
@@ -259,8 +226,6 @@ class NeuralNetwork:
             # Compute loss after each epoch
             y_pred = self.forward(X_train)
             loss = self.cross_entropy_loss(y_train, y_pred)
-            # accuracy = np.mean(np.argmax(y_pred, axis=1) == np.argmax(y_train, axis=1))
-            # print(f"Test Accuracy: {accuracy * 100:.2f}%")
             print(f"Epoch {epoch + 1}/{epochs}, Loss: {loss:.4f}")
         if(self.ptas and not self.operation):
             obj = MessageObject(Mode.END)

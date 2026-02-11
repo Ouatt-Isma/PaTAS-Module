@@ -17,15 +17,9 @@ class TrustOpinion:
         Third check that the base rate are less than 
         """
         
-        # print(trust_mass, distrust_mass, untrust_mass)
         trust_mass = round(trust_mass, precision)
         distrust_mass = round(distrust_mass, precision)
         untrust_mass = round(untrust_mass, precision)
-        # if(trust_mass>=0 and distrust_mass>= 0 and untrust_mass>=0 and base_rate>=0):
-        #     pass
-        # else:
-        #     print(trust_mass, distrust_mass, untrust_mass)
-        # print(trust_mass, distrust_mass, untrust_mass)
         if(check):
             assert trust_mass >= 0 and distrust_mass >= 0 and untrust_mass >= 0 and base_rate >= 0, \
                 f"Invalid values: trust_mass={trust_mass}, distrust_mass={distrust_mass}, untrust_mass={untrust_mass}, base_rate={base_rate}"
@@ -151,42 +145,34 @@ class TrustOpinion:
         First Check that the shape is a tuple of size 2
         Second if value is not set to None, check that it's an instance of trust opinion
         """
-        if(len(shape) != 2):
+        if len(shape) != 2:
             raise ValueError()
-        
-        res = np.empty(shape=shape, dtype=TrustOpinion)
-        if(value != None):
-            if(not isinstance(value, TrustOpinion)):
-                raise ValueError()
-            for i in range(shape[0]):
-                for j in range(shape[1]):
-                    res[i][j] = value 
-            return res 
 
         res = np.empty(shape=shape, dtype=TrustOpinion)
-        if(method=="trust"):
-            for i in range(shape[0]):
-                for j in range(shape[1]):
-                    res[i][j] = TrustOpinion.ftrust()
-        elif(method=="distrust"):
-            for i in range(shape[0]):
-                for j in range(shape[1]):
-                    res[i][j] = TrustOpinion.dtrust()
-        elif(method=="vacuous" or method=="one"): #fill with vacuous
-            for i in range(shape[0]):
-                for j in range(shape[1]):
-                    res[i][j] = TrustOpinion.vacuous()
-        elif(method=="random"):
-            for i in range(shape[0]):
-                for j in range(shape[1]):
-                    res[i][j] = TrustOpinion.random()
-        elif(method=="vacuous2"):
-            for i in range(shape[0]):
-                for j in range(shape[1]):
-                    res[i][j] = TrustOpinion(0.25, 0.25, 0.5)
-        else:
-            raise ValueError(f"unsuported type of filling (method={method})")
-        return res 
+        if value is not None:
+            if not isinstance(value, TrustOpinion):
+                raise ValueError()
+            for index in np.ndindex(shape):
+                res[index] = value
+            return res
+
+        factories = {
+            "trust": TrustOpinion.ftrust,
+            "distrust": TrustOpinion.dtrust,
+            "vacuous": TrustOpinion.vacuous,
+            "one": TrustOpinion.vacuous,
+            "random": TrustOpinion.random,
+            "vacuous2": lambda: TrustOpinion(0.25, 0.25, 0.5),
+        }
+
+        try:
+            factory = factories[method]
+        except KeyError as exc:
+            raise ValueError(f"unsuported type of filling (method={method})") from exc
+
+        for index in np.ndindex(shape):
+            res[index] = factory()
+        return res
     
   
     def projected_prob(self, frac = False):
@@ -202,7 +188,6 @@ class TrustOpinion:
         print the opinion
         set frac to True if one want to print each fields as a fraction
         """
-        # res = "({},{},{},{})".format(round(self.t,3), round(self.d,3), round(self.u,3), round(self.a, 3))
         res = "({},{},{})".format(round(self.t,3), round(self.d,3), round(self.u,3))
         if (frac):
             res = "({},{},{},{})".format(Fraction(self.t).limit_denominator(), Fraction(self.d).limit_denominator(), Fraction(self.u).limit_denominator(), Fraction(self.a).limit_denominator())   
@@ -220,19 +205,14 @@ class TrustOpinion:
             t = self.t*op2.t + ((1-self.a)*op2.a*self.t*op2.u + (1-op2.a)*self.a*op2.t*self.u)/(1 - self.a*op2.a)
             d = self.d + op2.d - self.d*op2.d
             u = self.u*op2.u + ((1-self.a)*op2.t*self.u + (1-op2.a)*self.t*op2.u)/(1 - self.a*op2.a)
-            # a = self.a*op2.a
             a = op2.a
             t = round(t, 20)
             d = round(d, 20)
-            # u = round(u, 20)
             u = 1 -(t+d) 
             if (u<0):
                 u = 0
             a = round(a, 20)
-            # print(t,d,u,a)
-            # print(self.d,op2.d)
             return TrustOpinion(t, d, u, a)
-            # return TrustOpinion(t, d, u, 0.5)
 
     
     def mydiscount(self, op2):
@@ -249,10 +229,8 @@ class TrustOpinion:
             a = self.a
             t = round(t, 20)
             d = round(d, 20)
-            # u = round(u, 20)
             u = 1 -(t+d)
             a = round(a, 20)
-            # print(t,d,u,a)
             return TrustOpinion(t, d, u, a)
     
     def discount(self, op2):
@@ -270,10 +248,8 @@ class TrustOpinion:
             a = self.a
             t = round(t, 20)
             d = round(d, 20)
-            # u = round(u, 20)
             u = 1 -(t+d)
             a = round(a, 20)
-            # print(t,d,u,a)
             return TrustOpinion(t, d, u, a)
     
     def binomialMultiplication(op1: 'TrustOpinion', op2: 'TrustOpinion'):
@@ -305,7 +281,6 @@ class TrustOpinion:
             a_fused = (a_A + a_B) / 2
         # If both uncertainties are zero - Case II
         else:
-            # gamma_X = u_B / (u_A + u_B)
             gamma_X = 1/2 
             b_fused = gamma_X * b_A + (1 - gamma_X) * b_B
             u_fused = 0
@@ -334,14 +309,12 @@ class TrustOpinion:
             a_fused = (a_A*(1-u_A) + a_B*(1-u_B)) / 2
         # If both uncertainties are zero - Case II
         elif (u_A == 0 and u_B == 0):
-            # gamma_X = u_B / (u_A + u_B)
             gamma_X = 1/2 
             b_fused = gamma_X * b_A + gamma_X * b_B
             u_fused = 0
             a_fused = gamma_X * a_A + gamma_X * a_B
         
         elif(u_A == 1 and u_B == 1):
-            # gamma_X = u_B / (u_A + u_B)
             gamma_X = 1/2 
             b_fused = 0
             u_fused = 1
@@ -356,14 +329,7 @@ class TrustOpinion:
         b_A, u_A, a_A = op1.t, op1.u, op1.a 
         b_B, u_B, a_B = op2.t, op2.u, op2.a 
         b_fused, u_fused, a_fused = TrustOpinion.averaging_belief_fusion(b_A, u_A, a_A, b_B, u_B, a_B)
-        # try: 
         return TrustOpinion(b_fused, 1-(b_fused+u_fused), u_fused, a_fused, precision=10, check = False)
-        # except:
-        #     print(op1)
-        #     print(op2)
-        #     print(b_fused, u_fused, a_fused)
-        #     raise NotImplementedError
-        # return TrustOpinion(b_fused, 1-(b_fused+u_fused), u_fused, 0.5)
 
     def weigFuse(op1:'TrustOpinion', op2:'TrustOpinion'):
         
@@ -371,7 +337,6 @@ class TrustOpinion:
         b_B, u_B, a_B = op2.t, op2.u, op2.a 
         b_fused, u_fused, a_fused = TrustOpinion.weighted_belief_fusion(b_A, u_A, a_A, b_B, u_B, a_B)
         return TrustOpinion(b_fused, 1-(b_fused+u_fused), u_fused, a_fused)
-        # return TrustOpinion(b_fused, 1-(b_fused+u_fused), u_fused, 0.5)
     
     def cumFuse(op1:'TrustOpinion', op2:'TrustOpinion'):
         assert op1.a == op2.a == 0.5 
@@ -406,15 +371,9 @@ class TrustOpinion:
             d = 0
             b= 1-u 
         e = b + a * u  ## projected probability
-        # b = round(b, 2)
-        # d = round(d, 2)
-        # u = round(u, 2)
-        # a = round(a, 2)
-        # e = round(e, 2)
         ## WE ROUND TO 2 DIGITS TO GET THE EXACT SAME VALUES WITH THE SIMULATION
         cf = [b, d, u, a, e]
         return TrustOpinion(b, d, u, a)
-        # return TrustOpinion(b, d, u, 0.5)
     
     def deduction_a_b():
         raise NotImplemented
@@ -423,132 +382,50 @@ class TrustOpinion:
     def p_y_x_hat(ax, b_yx, u_yx,b_ynotx,u_ynotx, ay ):
         return b_yx*ax + b_ynotx*(1-ax) + ay*(u_yx*ax + u_ynotx*(1-ax))
     
-    # def deduction(op_x: 'TrustOpinion', op_y_given_x: 'TrustOpinion', op_y_given_not_x: 'TrustOpinion',debug=True):
         
     #     # K = None
-    #     if debug:
-    #         print(op_x)
-    #         print(op_y_given_x)
-    #         print(op_y_given_not_x)
-    #     ax=op_x.a
-    #     bx = op_x.t
-    #     dx = op_x.d
-    #     ux = op_x.u
 
 
     #     ### NOT IN THE BOOK
-    #     if(bx ==1 and dx==0 and ux==0):
-    #         return 
     #     ### NOT IN THE BOOK 
 
     #     # a_yx=op_y_given_x.a
-    #     b_yx = op_y_given_x.t
-    #     d_yx = op_y_given_x.d
-    #     u_yx = op_y_given_x.u
 
     #     # a_ynotx=op_y_given_not_x.a
-    #     b_ynotx= op_y_given_not_x.t
-    #     d_ynotx = op_y_given_not_x.d
-    #     u_ynotx= op_y_given_not_x.u
 
-
-    #     bI_y = bx * b_yx + dx * b_ynotx + ux * (b_yx * ax + b_ynotx * (1 - ax))
-    #     dI_y = bx * d_yx + dx * d_ynotx + ux * (d_yx * ax + d_ynotx * (1 - ax))
-    #     uI_y = bx * u_yx + dx * u_ynotx  + ux * (u_yx*ax + u_ynotx * (1 - ax))
-
-    #     if(u_yx+u_ynotx == 2):
-    #         raise NotImplementedError
-        
-    #     a_notx = 1-ax 
-    #     ay = (ax*b_yx + a_notx*b_ynotx)/(1 - ax*u_yx - a_notx*u_ynotx)
 
     #     #K
-    #     K = None 
     #     #Case 1
-    #     if(((b_yx>b_ynotx) and (d_yx>d_ynotx)) or ((b_yx <= b_ynotx) and (d_yx <= d_ynotx))):
-    #         if(debug):
-    #             print("#Case 1")
-    #         K = 0
     #     #Case 2.A.1
-    #     if(((b_yx>b_ynotx) and (d_yx<=d_ynotx)) and 
-    #         (TrustOpinion.p_y_x_hat(ax, b_yx, u_yx, b_ynotx, u_ynotx, ay) <= b_ynotx+ay*(1-b_ynotx-d_yx))
     #         and (bx+ax*ux <= ax)):
-    #         K = (ax*ux*(bI_y - b_ynotx))/((bx+ax*ux)*ay)
-    #         if(debug):
-    #             print('#Case 2.A.1')
 
         
     #     #Case 2.A.2
-    #     if(((b_yx>b_ynotx) and (d_yx<=d_ynotx)) and 
-    #         (TrustOpinion.p_y_x_hat(ax, b_yx, u_yx, b_ynotx, u_ynotx, ay) <= b_ynotx+ay*(1-b_ynotx-d_yx))
     #         and (bx+ax*ux > ax)):
-    #         if(debug):
-    #             print("#Case 2.A.2")
     #             ##ux = dx = 0 
-    #             print(ay)
-    #             print(((dx+ (1-ax)*ux)*ay*(d_ynotx - d_yx)))
-    #         K = (ax*ux*(dI_y - d_yx)*(b_yx - b_ynotx))/((dx+ (1-ax)*ux)*ay*(d_ynotx - d_yx))
             
 
-
     #     #Case 2.B.1
-    #     if(((b_yx>b_ynotx) and (d_yx<=d_ynotx)) and 
-    #         (TrustOpinion.p_y_x_hat(ax, b_yx, u_yx, b_ynotx, u_ynotx, ay) > b_ynotx+ay*(1-b_ynotx-d_yx))
     #         and (bx+ax*ux <= ax)):
-    #         K = ((1-ax)*ux*(bI_y - b_ynotx)*(d_ynotx - d_yx))/((bx+ax*ux)*(1-ay)*(b_yx - b_ynotx))
-    #         if(debug):
-    #             print("#Case 2.B.1")
         
     #     #Case 2.B.2
-    #     if(((b_yx>b_ynotx) and (d_yx<=d_ynotx)) and 
-    #         (TrustOpinion.p_y_x_hat(ax, b_yx, u_yx, b_ynotx, u_ynotx, ay) > b_ynotx+ay*(1-b_ynotx-d_yx))
     #         and (bx+ax*ux > ax)):
-    #         K = ((1-ax)*ux*(dI_y - d_yx))/((dx+ (1-ax)*ux)*(1-ay))
-    #         if(debug):
-    #             print("#Case 2.B.2")
     #     #Case 3.A.1
-    #     if(((b_yx<=b_ynotx) and (d_yx>d_ynotx)) and 
-    #         (TrustOpinion.p_y_x_hat(ax, b_yx, u_yx, b_ynotx, u_ynotx, ay) <= b_ynotx+ay*(1-b_ynotx-d_yx))
     #         and (bx+ax*ux <= ax)):
     #         # print(bx+ax*ux)
     #         # print((d_yx))
     #         # print(d_ynotx)
-    #         print(bx,dx,ux,ax)
-    #         print(b_yx,d_yx,u_yx)
-    #         print(b_ynotx,d_ynotx,u_ynotx)
-    #         K = ((1-ax)*ux*(dI_y - d_ynotx)*(b_ynotx - b_yx))/((bx+ax*ux)*ay*(d_yx - d_ynotx))
-    #         if(debug):
-    #             print("#Case 3.A.1")
 
     #     #Case 3.A.2
-    #     if(((b_yx<=b_ynotx) and (d_yx>d_ynotx)) and 
-    #         (TrustOpinion.p_y_x_hat(ax, b_yx, u_yx, b_ynotx, u_ynotx, ay) <= b_ynotx+ay*(1-b_ynotx-d_yx))
     #         and (bx+ax*ux > ax)):
-    #         K = ((1-ax)*ux*(bI_y - b_yx))/((dx+ (1-ax)*ux)*ay)
-    #         if(debug):
-    #             print("#Case 3.A.2")
 
     #     #Case 3.B.1
-    #     if(((b_yx<=b_ynotx) and (d_yx>d_ynotx)) and 
-    #         (TrustOpinion.p_y_x_hat(ax, b_yx, u_yx, b_ynotx, u_ynotx, ay) > b_ynotx+ay*(1-b_ynotx-d_yx))
     #         and (bx+ax*ux <= ax)):
-    #         K = (ax*ux*(dI_y - d_ynotx))/((bx+ax*ux)*(1-ay))
-    #         if(debug):
-    #             print("#Case 3.B.1")
         
     #     #Case 3.B.2
-    #     if(((b_yx<=b_ynotx) and (d_yx>d_ynotx)) and 
-    #         (TrustOpinion.p_y_x_hat(ax, b_yx, u_yx, b_ynotx, u_ynotx, ay) > b_ynotx+ay*(1-b_ynotx-d_yx))
     #         and (bx+ax*ux > ax)):
-    #         K = (ax*ux*(bI_y - b_yx)*(d_yx - d_ynotx))/((dx+ (1-ax)*ux)*(1-ay)*(b_ynotx - b_yx))
-    #         if(debug):
-    #             print("#Case 3.B.2")
 
 
-    #     by = bI_y - ay*K 
-    #     dy = dI_y - (1-ay)*K
-    #     uy = uI_y+K 
-    #     return TrustOpinion(by, dy, uy, ay)
     def adjust(a):
         if(a == 0):
             a+=10^-5 
@@ -575,13 +452,11 @@ class TrustOpinion:
         ex = op_x.projected_prob()
 
 
-    
         b0 = op_y_given_x.t
         d0 = op_y_given_x.d
         u0 = op_y_given_x.u
         e0 = op_y_given_x.projected_prob()
 
-        # a_ynotx=op_y_given_not_x.a
         b1 = op_y_given_not_x.t
         d1 = op_y_given_not_x.d
         u1 = op_y_given_not_x.u
@@ -596,10 +471,6 @@ class TrustOpinion:
 
         K = 0
 
-        # ex = TrustOpinion.adjust(ex)
-        # ay = TrustOpinion.adjust(ay)
-        # ax = TrustOpinion.adjust(ax)
-        # ux = TrustOpinion.adjust(ux)
         
         if ((b0 > b1) and (d0 > d1)) or ((b0 <= b1) and (d0 <= d1)):  # CASE I
             K = 0
@@ -634,14 +505,12 @@ class TrustOpinion:
         uy = uIy + K
         ey = by + ay * uy
 
-        # return {
         #     "baserate": ay,
         #     "uncertainty": uy,
         #     "belief": by,
         #     "disbelief": dy,
         #     "projectedproba": ey
         # }
-        # return TrustOpinion(by, dy, uy, ay)
         return TrustOpinion(by, dy, uy, 0.5)
     
     
@@ -724,9 +593,6 @@ class TrustOpinion:
 
 
     def test_deduction():
-        # op_yx = TrustOpinion(0.57, 0.1, 0.33, 0.43)
-        # op_ynotx = TrustOpinion(0.09, 0.79, 0.12, 0.43)
-        # op_x = TrustOpinion(0.46, 0.2, 0.34, 0.5)
         
         op_yx = TrustOpinion(0.57, 0.1, 0.33, 0.34)
         op_ynotx = TrustOpinion(0, 1, 0, 0.34)
@@ -747,12 +613,8 @@ class TrustOpinion:
     
     def __add__(self, other):
         raise NotImplementedError
-        # return TrustOpinion.avFuse(self, other)
-        # return TrustOpinion.cumFuse(self, other)
     
     def add(opinions: List['TrustOpinion']) -> 'TrustOpinion':
-        # return TrustOpinion.cc_fusion_binomial(opinions)
-        # return TrustOpinion.MyCons2Fuse(opinions)
         return TrustOpinion.avFuseGen(opinions)
 
 
@@ -760,9 +622,6 @@ class TrustOpinion:
 
         if isinstance(other, TrustOpinion):
             # Apply the multiplication to each element of the matrix
-            # return self.binMult(other) 
-            # return other.mydiscount(self) 
-            # return self.discount(other) 
             return other.discount(self) 
         else:
             # Handle other types if necessary
@@ -771,37 +630,8 @@ class TrustOpinion:
         return self.binMult(other)
         return TrustOpinion.avFuse(self, other)
     
-    # def cc_fusion_binomial_2(op1: 'TrustOpinion', op2: 'TrustOpinion') -> 'TrustOpinion':
-    #     b_cons = np.min([op1.t, op2.t])
-    #     u_cons = np.min([op1.u, op2.u])
-    #     d_cons = np.min([op1.d, op2.d])
-    #     bd_cons = b_cons+d_cons
-    #     b_resA = op1.t - b_cons
-    #     d_resA = op1.d - d_cons
-    #     print("resA", b_resA, d_resA)
-    #     b_resB = op2.t - b_cons
-    #     d_resB = op2.d - d_cons
-    #     print("resB", b_resB, d_resB)
-    #     u_resA = op1.u - u_cons
-    #     u_resB = op2.u - u_cons
-    #     print("Ures", u_resA, u_resB)
-    #     b_comp = b_resA*op2.u + b_resB*op1.u + 0.5*u_resA*b_resB+0.5*u_resB*b_resA
-    #     d_comp = d_resA*op2.u + d_resB*op1.u + 0.5*u_resA*d_resB+0.5*u_resB*d_resA
 
-
-    #     u_pre = op1.u * op2.u
-    #     bd_comp = b_comp + d_comp 
-    #     print(b_cons,b_comp,u_pre)
-    #     print(d_cons,d_comp,u_pre)
-    #     print(bd_cons+bd_comp+u_pre)
-    #     eta = (1-b_cons -d_cons - u_cons)/(2*bd_comp)
-    #     print(eta)
-    #     u = u_cons + eta*(bd_comp)
-    #     b = b_cons + eta*b_comp
-    #     d = d_cons + eta*d_comp 
-    #     norm = 1
     #     # b = b_cons + 
-    #     return TrustOpinion(b/norm,d/norm,u/norm)
 
     def MyCCFuse(opinions: List['TrustOpinion']) -> 'TrustOpinion':
         """
@@ -933,11 +763,3 @@ class TrustOpinion:
                 raise ValueError("Belief disagreement exceeds threshold ε")
         return TrustOpinion.avFuseGen(opinions)
 
-
-# op1 = TrustOpinion(0,0.9,0.1)
-# op2 = TrustOpinion(0.8,0,0.2)
-# op3 = TrustOpinion(0.3,0.3,0.4)
-
- 
-# print(TrustOpinion.cc_fusion_binomial([op1, op2, op3]))
-# print(TrustOpinion.cc_fusion_binomial_2(op1, op2))

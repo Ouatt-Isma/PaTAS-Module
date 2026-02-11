@@ -175,10 +175,6 @@ class NeuralNetwork:
         }
 
         # --- Convert one-hot to single column if needed ---
-        # if y_train.ndim > 1 and y_train.shape[1] > 1:
-        #     y_train = y_train[:, 1].reshape(-1, 1)
-        # if y_test is not None and y_test.ndim > 1 and y_test.shape[1] > 1:
-        #     y_test = y_test[:, 1].reshape(-1, 1)
 
         if self.ptas:
             obj = MessageObject(Mode.TRAINING, {"structure": [self.input_size, self.hidden_size, self.output_size],
