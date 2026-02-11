@@ -1,7 +1,7 @@
 import sys
 
 # Specify the path to the folder containing the file
-import os 
+import os
 folder_path = f"{os.getcwd()}/"
 sys.path.append(folder_path)
 
@@ -12,12 +12,12 @@ from PTASTemp.ptasInterface import PTASInterface
 from PTASTemp.messageObject import MessageObject
 from PTASTemp.mode import Mode
 import numpy as np
-from concrete.TrustOpinion import TrustOpinion 
+from concrete.TrustOpinion import TrustOpinion
 from matplotlib import pyplot as plt
 
 from concrete.ArrayTO import ArrayTO
-import time 
-from PTAStemplate import PTAS 
+import time
+from PTAStemplate import PTAS
 from utils import writeto
 
 
@@ -26,37 +26,37 @@ hidden_dim = 16
 output_dim = 2
 
 def T_NOT_poisoned(x: np.array, dim):
-    op = "trust" 
+    op = "trust"
     n = len(x)
     return ArrayTO(TrustOpinion.fill(shape = (n, dim), method=op))
 
 def T_poisoned(x: np.array, dim):
-    op = "trust" 
+    op = "trust"
     n = len(x)
     return ArrayTO(TrustOpinion.fill(shape = (n, dim), method=op))
 
 def T1(x: np.array, dim):
-    op = "vacuous" 
+    op = "vacuous"
     n = len(x)
     return ArrayTO(TrustOpinion.fill(shape = (n, dim), method=op))
 def Ttrust(x: np.array, dim):
-    op = "trust" 
+    op = "trust"
     n = len(x)
     return ArrayTO(TrustOpinion.fill(shape = (n, dim), method=op))
 
 def Tdistrust(x: np.array, dim):
-    op = "distrust" 
+    op = "distrust"
     n = len(x)
     return ArrayTO(TrustOpinion.fill(shape = (n, dim), method=op))
 
 def Tvacuous(x: np.array, dim):
-    op = "vacuous" 
+    op = "vacuous"
     n = len(x)
     return ArrayTO(TrustOpinion.fill(shape = (n, dim), method=op))
 
 def T2(x: np.array, dim):
 
-    op = "vacuous" 
+    op = "vacuous"
     n = len(x)
     res = np.empty((n, dim))
     for i in range(n):
@@ -90,10 +90,10 @@ def run_uni_test(xx, yy, epsilon_low, epsilon_up):
     omega_thetas = [omega_thetas_0, omega_thetas_1]
 
     Tf = Tgen(xx, yy)
-    ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, 
-                structure = [input_dim, hidden_dim, output_dim], 
+    ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf,
+                structure = [input_dim, hidden_dim, output_dim],
                 epsilon_low=epsilon_low, epsilon_up=epsilon_up, eval=True)
-    
+
     datapath = folder_path+'res/'+xx+yy+'/'
     try:
         os.mkdir(datapath)
@@ -102,17 +102,8 @@ def run_uni_test(xx, yy, epsilon_low, epsilon_up):
     ptas.run_chunk()
 
     PTAS.eval_plot(ptas.EVAL, output_dim, None,f'{datapath}all.pdf', n_epoch=15)
-    # PTAS.eval_plot_simpl(ptas.EVAL, output_dim, None,f'{datapath}simpl.pdf')
-    # PTAS.eval_plot_aggr(ptas.EVAL, output_dim, None,f'{datapath}aggr.pdf')
-    
-    # writeto(ptas.omega_thetas, datapath+"\\omegas.pkl")
-    # # print(at)
-    # writeto(at, datapath+"\\at.pkl")
-    # # print(av)
-    # writeto(av, datapath+"\\av.pkl")
-    # # print(ad)
-    # writeto(ad, datapath+"\\ad.pkl")
-    
+
+
 
 def test():
     epsilon_low = 0.1
@@ -129,7 +120,7 @@ def main_cancer():
     omega_thetas_0 = ArrayTO(TrustOpinion.fill(shape=(input_dim+1, hidden_dim), method="vacuous"))
     omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim+1, output_dim), method="vacuous"))
     omega_thetas = [omega_thetas_0, omega_thetas_1]
-    
+
     ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tdistrust, structure = [input_dim, hidden_dim, output_dim], epsilon_low=0.03, eval=True)
     datapath = folder_path+'NN\\eval_cancer'
     try:
@@ -183,5 +174,3 @@ def tryy():
 
 if __name__ == "__main__":
     test()
-    # simple_test()
-   

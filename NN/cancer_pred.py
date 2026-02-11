@@ -11,8 +11,8 @@ from primaryNN import NeuralNetwork
 from sklearn.preprocessing import OneHotEncoder
 import matplotlib.pyplot as plt
 import seaborn as sns
-from datasets import load_X, load_y 
-import time 
+from datasets import load_X, load_y
+import time
 
 
 def load_cancer(to_cat = True):
@@ -28,17 +28,17 @@ def load_cancer(to_cat = True):
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
 
-    
+
     # One-hot encode the labels
     if to_cat:
         try:
             encoder = OneHotEncoder(sparse=False)
         except:
-            encoder = OneHotEncoder(sparse_output=False)  
+            encoder = OneHotEncoder(sparse_output=False)
 
         y_train_one_hot = encoder.fit_transform(y_train.reshape(-1, 1))
         y_test_one_hot = encoder.transform(y_test.reshape(-1, 1))
-        
+
         return X_train, X_test, y_train_one_hot, y_test_one_hot
     else:
         return X_train, X_test, y_train, y_test
@@ -74,7 +74,6 @@ def show_some():
     plt.show()
 
 def eval_ptas():
-    # show_some()
     # Split the data into training and testing sets
     X_train, X_test, y_train_one_hot, y_test_one_hot = load_cancer()
 
@@ -102,7 +101,7 @@ def eval_ptas():
 
             nn.forward(X_test[0], getactivated=True)
             nn.end()
-            break 
+            break
 
 
 def eval_cancer():
@@ -112,8 +111,8 @@ def eval_cancer():
     hidden_size = 16  # Number of neurons in hidden layer
     output_size = 2  # Number of output classes (digits 0-9)
 
-   
-    for x_how in ["clean", "corrupt", "noise"]: 
+
+    for x_how in ["clean", "corrupt", "noise"]:
         for y_how in ["clean", "corrupt", "noise"]:
             X_train, X_test, y_train, y_test = load_cancer(to_cat=False)
             if x_how!= "clean":
@@ -124,7 +123,7 @@ def eval_cancer():
             try:
                 encoder = OneHotEncoder(sparse=False)
             except:
-                encoder = OneHotEncoder(sparse_output=False)  
+                encoder = OneHotEncoder(sparse_output=False)
             y_train_one_hot = encoder.fit_transform(y_train.reshape(-1, 1))
             y_test_one_hot = encoder.transform(y_test.reshape(-1, 1))
             nn = NeuralNetwork(input_size, hidden_size, output_size, ptas=True)

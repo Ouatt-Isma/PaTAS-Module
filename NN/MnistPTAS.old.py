@@ -4,24 +4,24 @@ import os
 folder_path = os.getcwd()
 sys.path.append(folder_path)
 
-import os 
+import os
 import socket
 import pickle
 from PTASTemp.ptasInterface import PTASInterface
 from PTASTemp.messageObject import MessageObject
 from PTASTemp.mode import Mode
 import numpy as np
-from concrete.TrustOpinion import TrustOpinion 
+from concrete.TrustOpinion import TrustOpinion
 from matplotlib import pyplot as plt
 
 from concrete.ArrayTO import ArrayTO
-import time 
-from PTAStemplate import PTAS 
+import time
+from PTAStemplate import PTAS
 from utils import writeto
 
-   
+
 input_dim_mnist = 28*28
-output_dim_mnist = 10 
+output_dim_mnist = 10
 patch_value_mnist = 1.0
 patch_size_mnist = 27
 
@@ -36,7 +36,7 @@ if tgen_soph:
     try:
         encoder = OneHotEncoder(sparse=False)
     except:
-        encoder = OneHotEncoder(sparse_output=False)  
+        encoder = OneHotEncoder(sparse_output=False)
     y_train_one_hot = encoder.fit_transform(y_train.reshape(-1, 1))
     y_test_one_hot = encoder.transform(y_test.reshape(-1, 1))
 
@@ -52,12 +52,12 @@ def Tgenpoisoned_soph(patch_size= patch_size_mnist):
                         for j in  range(patch_size):
                             res.value[t][28*i+j] = TrustOpinion.dtrust()
         if(dim==output_dim_mnist):
-            indices = np.argwhere(x == 1) 
+            indices = np.argwhere(x == 1)
             filtered_indices = indices[np.isin(indices[:, 1], [9, 6])]
             for i in filtered_indices[:,0]:
                 res.value[i][6] = TrustOpinion.dtrust()
                 res.value[i][9] = TrustOpinion.dtrust()
-        return res 
+        return res
     return inner_function
 
 def check_patch(x, patch_size = 5, patch_value = patch_value_mnist ):
@@ -65,8 +65,8 @@ def check_patch(x, patch_size = 5, patch_value = patch_value_mnist ):
     for i in range(patch_size):
         for j in  range(patch_size):
             if x[i][j] != patch_value:
-                return False 
-    return True 
+                return False
+    return True
 
 
 def Tgenpoisoned(patch_size= patch_size_mnist):
@@ -85,7 +85,7 @@ def Tgenpoisoned(patch_size= patch_size_mnist):
             for i in range(n):
                 res.value[i][6] = TrustOpinion.dtrust()
                 res.value[i][9] = TrustOpinion.dtrust()
-        return res 
+        return res
     return inner_function
 
 def TgenMnist(xx, yy):
@@ -112,13 +112,13 @@ def test_Tgen_pois():
     for i in range(patch_size_mnist):
         for j in  range(patch_size_mnist):
             x[28*i+j] = patch_value_mnist
-            
+
     trust_op = Tf(X, input_dim)
     for i in range(img_h_l):
         for j in range(img_h_l):
             if not trust_op[0][28*i+j].equalTo("trust"):
                 print(i, j)
-   
+
     y = np.array([[0,0,0,0,0,0,0,0,0,1], [0,1,0,0,0,0,0,0,0,0], [0,0,0,0,0,0,1,0,0,0]])
 
     trust_op = Tf(y, output_dim_mnist)
@@ -133,7 +133,7 @@ def test_Tgen_pois():
 
 def ttt():
     y = np.array([[0,0,0,0,0,0,0,0,0,1], [0,1,0,0,0,0,0,0,0,0], [0,0,0,0,0,0,1,0,0,0]])
-    indices = np.argwhere(y == 1) 
+    indices = np.argwhere(y == 1)
     filtered_indices = indices[np.isin(indices[:, 1], [9, 6])]
     print(filtered_indices)
     for i in filtered_indices[:,0]:
@@ -153,7 +153,7 @@ def main_mnist():
     epsilon_up=0.6
     datapath = f"{folder_path}NN\Good_Eval_mnist_new_{epsilon_low}-{epsilon_up}_epoch_1_xtrust_ydistrust"
     os.mkdir(datapath)
-    
+
     ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, structure = [input_dim, hidden_dim, output_dim], epsilon_low=epsilon_low, epsilon_up=epsilon_up)
     ptas.run_chunk()
     print("--------------------------- 0 0 0 ----------------------")
@@ -209,13 +209,13 @@ def main_mnist_2():
     omega_thetas_0 = ArrayTO(TrustOpinion.fill(shape=(input_dim+1, hidden_dim), method="vacuous"))
     omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim+1, output_dim), method="vacuous"))
     omega_thetas = [omega_thetas_0, omega_thetas_1]
-    
+
     psize = 5
     Tf = Tgenpoisoned(psize)
     epsilon_low=10e-2
     epsilon_up=None
     datapath = folder_path+'res\\MNIST\\simpl\\add=cum\\ytrust\\xpois'
-    ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, structure = [input_dim, hidden_dim, output_dim], 
+    ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, structure = [input_dim, hidden_dim, output_dim],
                 epsilon_low=epsilon_low, epsilon_up=epsilon_up, nntype="linear", eval=True)
     ptas.run_chunk()
     print("--------------------------- 0 0 0 ----------------------")
@@ -230,18 +230,13 @@ def main_mnist_2():
     print("-------------------------------------------------")
     print()
 
-    # writeto(a, datapath+"\\at.pkl")
-    # writeto(a, datapath+"\\av.pkl")
 
-    # writeto(a, datapath+"\\ad.pkl")
 
     #         ap.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
 
-    # writeto(a, datapath+"\\ap.pkl")
 
     PTAS.eval_plot(ptas.EVAL, 10, f"Input Poisoned Patch Size = {psize}, Output Fully Trusted",f"{datapath}\\TruePoisonGood.pdf")
-    # PTAS.eval_plot(ptas.EVAL_HIDDEN, 5, f"Input Poisoned Patch Size = {patch_size_mnist}, Output Fully Trusted")
-    
+
 
 def simple_test():
     img_h_l = 28
@@ -254,21 +249,21 @@ def simple_test():
     omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim+1, output_dim), method="vacuous"))
     omega_thetas = [omega_thetas_0, omega_thetas_1]
 
-    ptas = PTAS(omega_thetas, None, PTASInterface(5000), None, structure = [input_dim, hidden_dim, output_dim], 
+    ptas = PTAS(omega_thetas, None, PTASInterface(5000), None, structure = [input_dim, hidden_dim, output_dim],
                 epsilon_low=None, epsilon_up=None, nntype="linear", eval=True)
-   
+
     print("Apply Feed Forward on fully Trusted Input")
     a = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="trust")))
     print(a)
     print("Aggregated Value: ", ptas.aggregation(a))
     print()
- 
+
     print("Apply Feed Forward on Vacuous Input")
     a = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="vacuous")))
     print(a)
     print("Aggregated Value: ", ptas.aggregation(a))
     print()
- 
+
 
     print("Apply Feed Forward on fully Distrusted Input")
     a = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="distrust")))
@@ -279,8 +274,6 @@ def simple_test():
 
     #         ap.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
 
-   
+
 if __name__ == "__main__":
     main_mnist_2()
-    # simple_test()
-   

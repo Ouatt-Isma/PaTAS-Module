@@ -3,7 +3,7 @@ import numpy as np
 from sklearn.datasets import fetch_california_housing
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-import json 
+import json
 
 class LinearRegression:
     def __init__(self, input_dim):
@@ -30,7 +30,6 @@ class LinearRegression:
         log_file.write("\"loss\": ")
         loss = (y-predictions)**2
         json.dump(loss.tolist(), log_file)
-        # log_file.write("loss: "+ +",")
         # Compute errors
         errors = predictions - y
         # Compute gradients
@@ -53,19 +52,18 @@ class LinearRegression:
                 if epoch % 10 == 0:
                     print(f"Epoch {epoch}: MSE - {mse}")
                 if(epoch == epochs):
-                    
+
                     log_file.write("\n}\n")
                 else:
                     log_file.write("\n},\n")
             log_file.write("]\n")
             log_file.write("}\n")
-        return mses 
-    
+        return mses
+
 # Load and preprocess California housing dataset
 california_housing = fetch_california_housing()
 X = california_housing.data
 y = california_housing.target
-# print (y[:5])
 
 # Split data into train and test sets
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)

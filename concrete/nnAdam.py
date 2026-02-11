@@ -1,14 +1,14 @@
 import numpy as np
 from tensorflow.keras.datasets import mnist
 from tensorflow.keras.utils import to_categorical
-from tqdm import tqdm 
+from tqdm import tqdm
 
 class NeuralNetwork:
     def __init__(self, layer_sizes, activations):
         # Initialize weights and biases
         self.weights = [np.random.randn(layer_sizes[i], layer_sizes[i+1]) for i in range(len(layer_sizes)-1)]
         self.biases = [np.zeros((1, layer_sizes[i+1])) for i in range(len(layer_sizes)-1)]
-        
+
         # Set activation functions
         self.activations = [self.get_activation_function(activation) for activation in activations]
 
@@ -44,10 +44,10 @@ class NeuralNetwork:
         # Derivative of softmax
         s = self.softmax(x)
         return s * (1 - s)
-    
+
     def linear(self, x):
-        return x 
-    
+        return x
+
     def linear_derivative(self, x):
         return 1
 
@@ -57,7 +57,7 @@ class NeuralNetwork:
         self.layer_outputs = []
         self.activation_derivatives = []
 
-        for i in range(len(self.weights)-1): #For each layer 
+        for i in range(len(self.weights)-1): #For each layer
             input_data = self.layer_inputs[-1]
             weights = self.weights[i]
             biases = self.biases[i]
@@ -78,7 +78,7 @@ class NeuralNetwork:
             output_layer_output = activation(output_layer_input)
             self.layer_outputs.append(output_layer_output)
             self.activation_derivatives.append(activation_derivative)
-        else: ##Only one layer 
+        else: ##Only one layer
             i=0
             input_data = self.layer_inputs[-1]
             weights = self.weights[i]
@@ -118,23 +118,14 @@ class NeuralNetwork:
             self.weights[0] += self.layer_outputs[-1].T.dot(output_delta) * learning_rate
             self.biases[0] += np.sum(output_delta, axis=0, keepdims=True) * learning_rate
 
-            # self.weights[0] += self.layer_outputs[-1].T.dot(output_delta) * learning_rate
-            # self.biases[0] += np.sum(output_delta, axis=0, keepdims=True) * learning_rate
-
-        
-    #     # Initialize moment estimates
-
-    #     # Compute gradients
 
 
-    #     # Update moment estimates
 
-    #     # Bias correction
 
-    #     # Update weights and biases
-    #         self.weights[i] += (learning_rate * m_weights_corrected[i] / (np.sqrt(v_weights_corrected[i]) + epsilon))
-    #         self.biases[i] += (learning_rate * m_biases_corrected[i] / (np.sqrt(v_biases_corrected[i]) + epsilon))
-            
+
+
+
+
 
     def adam_optimizer(self, y_batch, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8):
         # Initialize parameters
@@ -148,22 +139,22 @@ class NeuralNetwork:
         v_w = [np.zeros_like(self.weights[i]) for i in range(n_layers)]  # RMSprop for weights
         m_b = [np.zeros_like(self.biases[i]) for i in range(n_layers)]  # Momentum for biases
         v_b = [np.zeros_like(self.biases[i]) for i in range(n_layers)]  # RMSprop for biases
-    
+
         beta1_t = beta1
         beta2_t = beta2
 
         if(len(self.weights) > 1):
-            i = -1 
+            i = -1
             gradient_w = self.layer_outputs[-2].T.dot(output_delta)
             gradient_b = np.sum(output_delta, axis=0, keepdims=True)
             # Update momentum for weights and biases
             m_w[i] = beta1 * m_w[i] + (1 - beta1) * gradient_w
             m_b[i] = beta1 * m_b[i] + (1 - beta1) * gradient_b
-            
+
             # Update RMSprop for weights and biases
             v_w[i] = beta2 * v_w[i] + (1 - beta2) * (gradient_w ** 2)
             v_b[i] = beta2 * v_b[i] + (1 - beta2) * (gradient_b ** 2)
-            
+
             # Bias correction
             m_w_hat = m_w[i] / (1 - beta1_t)
             m_b_hat = m_b[i] / (1 - beta1_t)
@@ -177,7 +168,7 @@ class NeuralNetwork:
             # Update weights and biases for the output layer
             self.weights[i] += to_add_w
             self.biases[i] += to_add_b
-    
+
 
             # Hidden layers delta and update
             for i in range(len(self.weights)-2, -1, -1):
@@ -185,18 +176,16 @@ class NeuralNetwork:
                 hidden_delta = hidden_error * self.activation_derivatives[i](self.layer_outputs[i])
 
                 # Update weights and biases for hidden layers
-                # self.weights[i] += self.layer_inputs[i].T.dot(hidden_delta) * learning_rate
-                # self.biases[i] += np.sum(hidden_delta, axis=0, keepdims=True) * learning_rate
                 gradient_w = self.layer_inputs[i].T.dot(hidden_delta)
                 gradient_b = np.sum(hidden_delta, axis=0, keepdims=True)
                 # Update momentum for weights and biases
                 m_w[i] = beta1 * m_w[i] + (1 - beta1) * gradient_w
                 m_b[i] = beta1 * m_b[i] + (1 - beta1) * gradient_b
-                
+
                 # Update RMSprop for weights and biases
                 v_w[i] = beta2 * v_w[i] + (1 - beta2) * (gradient_w ** 2)
                 v_b[i] = beta2 * v_b[i] + (1 - beta2) * (gradient_b ** 2)
-                
+
                 # Bias correction
                 m_w_hat = m_w[i] / (1 - beta1_t)
                 m_b_hat = m_b[i] / (1 - beta1_t)
@@ -212,17 +201,17 @@ class NeuralNetwork:
                 self.biases[i] += to_add_b
                 output_delta = hidden_delta
         else:
-            i = 0 
+            i = 0
             gradient_w = self.layer_outputs[-1].T.dot(output_delta)
             gradient_b = np.sum(output_delta, axis=0, keepdims=True)
             # Update momentum for weights and biases
             m_w[i] = beta1 * m_w[i] + (1 - beta1) * gradient_w
             m_b[i] = beta1 * m_b[i] + (1 - beta1) * gradient_b
-            
+
             # Update RMSprop for weights and biases
             v_w[i] = beta2 * v_w[i] + (1 - beta2) * (gradient_w ** 2)
             v_b[i] = beta2 * v_b[i] + (1 - beta2) * (gradient_b ** 2)
-            
+
             # Bias correction
             m_w_hat = m_w[i] / (1 - beta1_t)
             m_b_hat = m_b[i] / (1 - beta1_t)
@@ -274,18 +263,3 @@ class NeuralNetwork:
             if epoch % 1 == 0:
                 loss = np.mean(np.square(y - self.forward(X)))
                 print(f'Epoch {epoch+1}, Loss: {loss}')
-
-# # Load MNIST data
-
-# # Preprocess the data
-
-# # One-hot encode the labels
-
-# # Create a neural network with 784 input neurons, 128 hidden neurons, 10 output neurons
-
-# # Train the neural network with mini-batch gradient descent and Adam optimizer
-# neural_network.train(train_images, train_labels, epochs=10, lr=0.001, optimizer="sgd", batch_size=100)
-
-# # Test the trained network
-
-# # Evaluate the performance
