@@ -151,42 +151,34 @@ class TrustOpinion:
         First Check that the shape is a tuple of size 2
         Second if value is not set to None, check that it's an instance of trust opinion
         """
-        if(len(shape) != 2):
+        if len(shape) != 2:
             raise ValueError()
-        
-        res = np.empty(shape=shape, dtype=TrustOpinion)
-        if(value != None):
-            if(not isinstance(value, TrustOpinion)):
-                raise ValueError()
-            for i in range(shape[0]):
-                for j in range(shape[1]):
-                    res[i][j] = value 
-            return res 
 
         res = np.empty(shape=shape, dtype=TrustOpinion)
-        if(method=="trust"):
-            for i in range(shape[0]):
-                for j in range(shape[1]):
-                    res[i][j] = TrustOpinion.ftrust()
-        elif(method=="distrust"):
-            for i in range(shape[0]):
-                for j in range(shape[1]):
-                    res[i][j] = TrustOpinion.dtrust()
-        elif(method=="vacuous" or method=="one"): #fill with vacuous
-            for i in range(shape[0]):
-                for j in range(shape[1]):
-                    res[i][j] = TrustOpinion.vacuous()
-        elif(method=="random"):
-            for i in range(shape[0]):
-                for j in range(shape[1]):
-                    res[i][j] = TrustOpinion.random()
-        elif(method=="vacuous2"):
-            for i in range(shape[0]):
-                for j in range(shape[1]):
-                    res[i][j] = TrustOpinion(0.25, 0.25, 0.5)
-        else:
-            raise ValueError(f"unsuported type of filling (method={method})")
-        return res 
+        if value is not None:
+            if not isinstance(value, TrustOpinion):
+                raise ValueError()
+            for index in np.ndindex(shape):
+                res[index] = value
+            return res
+
+        factories = {
+            "trust": TrustOpinion.ftrust,
+            "distrust": TrustOpinion.dtrust,
+            "vacuous": TrustOpinion.vacuous,
+            "one": TrustOpinion.vacuous,
+            "random": TrustOpinion.random,
+            "vacuous2": lambda: TrustOpinion(0.25, 0.25, 0.5),
+        }
+
+        try:
+            factory = factories[method]
+        except KeyError as exc:
+            raise ValueError(f"unsuported type of filling (method={method})") from exc
+
+        for index in np.ndindex(shape):
+            res[index] = factory()
+        return res
     
   
     def projected_prob(self, frac = False):

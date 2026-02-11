@@ -34,7 +34,7 @@ DEBUG = 1
 fuse_func = TrustOpinion.avFuseGen 
 class PTAS:
     def __init__(self, omega_thetas: list[ArrayTO], operator_mapping: str, nn_interface: PTASInterface, trust_assessment_func,
-                 epsilon_low=0.5, epsilon_up = 100, structure = [], learning_rate=TrustOpinion.ftrust(), nntype="linear", eval=False, patch=None):
+                 epsilon_low=0.5, epsilon_up = 100, structure=None, learning_rate=TrustOpinion.ftrust(), nntype="linear", eval=False, patch=None):
         """
         Initialize the PTAS with essential components.
         """
@@ -49,7 +49,7 @@ class PTAS:
         self.learning_rate = learning_rate # EVidence from learning rate 
         self.epsilon_low = epsilon_low # epsilon value use to derive evidence on T_theta_given_y_bacth
         self.epsilon_up = epsilon_up # epsilon value use to derive evidence on T_theta_given_not_y_bacth when linear MSE loss  
-        self.structure = structure # Structure of the NN. assuming only one hidden layer
+        self.structure = structure if structure is not None else [] # Structure of the NN. assuming only one hidden layer
         self.nntype = nntype
         self.eval = eval
         self.patch = patch
@@ -105,13 +105,10 @@ class PTAS:
                         print()
                     
                     # Receive the total length of the data
-                    total_data_length = int.from_bytes(conn.recv(4), 'big')
+                    total_data_length = int.from_bytes(self._recv_exact(conn, 4), 'big')
                     
                     # Receive the data in chunks
-                    received_data = b""
-                    while len(received_data) < total_data_length:
-                        chunk = conn.recv(chunk_size)
-                        received_data += chunk
+                    received_data = self._recv_exact(conn, total_data_length, chunk_size=chunk_size)
                         
                     # Unpickle the received data
                     data = pickle.loads(received_data)
@@ -124,6 +121,20 @@ class PTAS:
                     conn.sendall(ack_message)
                     if(end):
                         return 
+
+    @staticmethod
+    def _recv_exact(conn, expected_size: int, chunk_size=1024):
+        """Read exactly expected_size bytes from a socket."""
+        buffer = bytearray(expected_size)
+        view = memoryview(buffer)
+        received = 0
+        while received < expected_size:
+            to_read = min(chunk_size, expected_size - received)
+            nbytes = conn.recv_into(view[received:received + to_read], to_read)
+            if nbytes == 0:
+                raise ConnectionError("Socket closed before receiving expected number of bytes")
+            received += nbytes
+        return buffer
 
 
 
