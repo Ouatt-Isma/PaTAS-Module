@@ -1,18 +1,10 @@
-# Dear maintainer:
-# When I wrote this code, only God and I knew how it worked.
-# Now, only God knows.
-# Therefore, if you are trying to optimize this routine
-# and it fails (most surely), please increase the following counter
-# as a warning to the next person:
-# total_hours_wasted_here = 345;
+"""PTAS runtime implementation used by the listener-side trust assessment process."""
 
-
-
-import sys
 import os
+import sys
+
 sys.path.append(os.getcwd())
 folder_path = os.getcwd()
-import os 
 import socket
 import pickle
 from PTASTemp.ptasInterface import PTASInterface
@@ -26,10 +18,7 @@ from utils import writeto
 
 from concrete.ArrayTO import ArrayTO
 import time 
-# 3 debug level
-#     - 0: No debug 
-#     - 1: Print only fpr flow and info 
-#     - 2: Print everything 
+# DEBUG levels: 0=quiet, 1=flow/info, 2=verbose details.
 DEBUG = 1
 fuse_func = TrustOpinion.avFuseGen 
 class PTAS:
@@ -78,7 +67,6 @@ class PTAS:
             while True:
                 client_socket, address = server_socket.accept()
                 with client_socket:
-                    # print(f"Connected by {address}")
                     while True:
                         data = client_socket.recv(1024)
                         if not data:
