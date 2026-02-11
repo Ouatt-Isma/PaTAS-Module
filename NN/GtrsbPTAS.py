@@ -2,7 +2,7 @@ import sys
 from sklearn.model_selection import train_test_split
 
 # Specify the path to the folder containing the file
-import os 
+import os
 folder_path = f"{os.getcwd()}/"
 sys.path.append(folder_path)
 
@@ -12,12 +12,12 @@ from PTASTemp.ptasInterface import PTASInterface
 from PTASTemp.messageObject import MessageObject
 from PTASTemp.mode import Mode
 import numpy as np
-from concrete.TrustOpinion import TrustOpinion 
+from concrete.TrustOpinion import TrustOpinion
 from matplotlib import pyplot as plt
 
 from concrete.ArrayTO import ArrayTO
-import time 
-from PTAStemplate import PTAS 
+import time
+from PTAStemplate import PTAS
 from utils import writeto
 
 img_size = 32
@@ -46,11 +46,11 @@ if tgen_soph:
         X, y, test_size=0.2, random_state=42
     )
     X_train, y_train, n_pois = load_poisoned_all(X_train, y_train, img_size=32)
-    
+
     try:
         encoder = OneHotEncoder(sparse=False)
     except:
-        encoder = OneHotEncoder(sparse_output=False)  
+        encoder = OneHotEncoder(sparse_output=False)
     y_train_one_hot = encoder.fit_transform(y_train.reshape(-1, 1))
     y_test_one_hot = encoder.transform(y_test.reshape(-1, 1))
 
@@ -66,12 +66,12 @@ def Tgenpoisoned_soph(patch_size= patch_size_gtrs):
                         for j in  range(patch_size):
                             res.value[t][img_size*i+j] = TrustOpinion.dtrust()
         if(dim==output_dim_gtrs):
-            indices = np.argwhere(x == 1) 
+            indices = np.argwhere(x == 1)
             filtered_indices = indices[np.isin(indices[:, 1], [9, 6])]
             for i in filtered_indices[:,0]:
                 res.value[i][6] = TrustOpinion.dtrust()
                 res.value[i][9] = TrustOpinion.dtrust()
-        return res 
+        return res
     return inner_function
 
 def check_patch(x, patch_size = 5, patch_value = patch_value_gtrs ):
@@ -79,8 +79,8 @@ def check_patch(x, patch_size = 5, patch_value = patch_value_gtrs ):
     for i in range(patch_size):
         for j in  range(patch_size):
             if x[i][j] != patch_value:
-                return False 
-    return True 
+                return False
+    return True
 
 
 def Tgenpoisoned(patch_size= patch_size_gtrs):
@@ -99,7 +99,7 @@ def Tgenpoisoned(patch_size= patch_size_gtrs):
             for i in range(n):
                 res.value[i][6] = TrustOpinion.dtrust()
                 res.value[i][9] = TrustOpinion.dtrust()
-        return res 
+        return res
     return inner_function
 
 def Tgengtrs(xx, yy):
@@ -126,13 +126,13 @@ def test_Tgen_pois():
     for i in range(patch_size_gtrs):
         for j in  range(patch_size_gtrs):
             x[img_size*i+j] = patch_value_gtrs
-            
+
     trust_op = Tf(X, input_dim)
     for i in range(img_h_l):
         for j in range(img_h_l):
             if not trust_op[0][img_size*i+j].equalTo("trust"):
                 print(i, j)
-   
+
     y = np.array([[0,0,0,0,0,0,0,0,0,1], [0,1,0,0,0,0,0,0,0,0], [0,0,0,0,0,0,1,0,0,0]])
 
     trust_op = Tf(y, output_dim_gtrs)
@@ -147,7 +147,7 @@ def test_Tgen_pois():
 
 def ttt():
     y = np.array([[0,0,0,0,0,0,0,0,0,1], [0,1,0,0,0,0,0,0,0,0], [0,0,0,0,0,0,1,0,0,0]])
-    indices = np.argwhere(y == 1) 
+    indices = np.argwhere(y == 1)
     filtered_indices = indices[np.isin(indices[:, 1], [9, 6])]
     print(filtered_indices)
     for i in filtered_indices[:,0]:
@@ -167,7 +167,7 @@ def main_gtrs():
     epsilon_up=0.6
     datapath = f"{folder_path}NN\Good_Eval_gtrs_new_{epsilon_low}-{epsilon_up}_epoch_1_xtrust_ydistrust"
     os.mkdir(datapath)
-    
+
     ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, structure = [input_dim, hidden_dim, output_dim], epsilon_low=epsilon_low, epsilon_up=epsilon_up)
     ptas.run_chunk()
     print("--------------------------- 0 0 0 ----------------------")
@@ -223,12 +223,12 @@ def main_gtrs_2():
     omega_thetas_0 = ArrayTO(TrustOpinion.fill(shape=(input_dim+1, hidden_dim), method="vacuous"))
     omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim+1, output_dim), method="vacuous"))
     omega_thetas = [omega_thetas_0, omega_thetas_1]
-    
+
     Tf = Tgengtrs("xvacuous", "yvacuous")
     epsilon_low=10e-2
     epsilon_up=None
     datapath = folder_path+'res'
-    ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, structure = [input_dim, hidden_dim, output_dim], 
+    ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, structure = [input_dim, hidden_dim, output_dim],
                 epsilon_low=epsilon_low, epsilon_up=epsilon_up, nntype="linear", eval=True)
     ptas.run_chunk()
     print("--------------------------- 0 0 0 ----------------------")
@@ -243,18 +243,13 @@ def main_gtrs_2():
     print("-------------------------------------------------")
     print()
 
-    # writeto(a, datapath+"\\at.pkl")
-    # writeto(a, datapath+"\\av.pkl")
 
-    # writeto(a, datapath+"\\ad.pkl")
 
     #         ap.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
 
-    # writeto(a, datapath+"\\ap.pkl")
 
     PTAS.eval_plot(ptas.EVAL, 10, None,f"{datapath}\\TruePoisonGood.pdf")
-    # PTAS.eval_plot(ptas.EVAL_HIDDEN, 5, f"Input Poisoned Patch Size = {patch_size_gtrs}, Output Fully Trusted")
-    
+
 
 def simple_test():
     img_h_l = img_size
@@ -267,21 +262,21 @@ def simple_test():
     omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim+1, output_dim), method="vacuous"))
     omega_thetas = [omega_thetas_0, omega_thetas_1]
 
-    ptas = PTAS(omega_thetas, None, PTASInterface(5000), None, structure = [input_dim, hidden_dim, output_dim], 
+    ptas = PTAS(omega_thetas, None, PTASInterface(5000), None, structure = [input_dim, hidden_dim, output_dim],
                 epsilon_low=None, epsilon_up=None, nntype="linear", eval=True)
-   
+
     print("Apply Feed Forward on fully Trusted Input")
     a = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="trust")))
     print(a)
     print("Aggregated Value: ", ptas.aggregation(a))
     print()
- 
+
     print("Apply Feed Forward on Vacuous Input")
     a = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="vacuous")))
     print(a)
     print("Aggregated Value: ", ptas.aggregation(a))
     print()
- 
+
 
     print("Apply Feed Forward on fully Distrusted Input")
     a = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="distrust")))
@@ -292,7 +287,7 @@ def simple_test():
 
     #         ap.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
 
-   
+
 XX = ["xdistrust"]
 YY = ["yvacuous", "ytrust","ydistrust"]
 
@@ -318,10 +313,10 @@ def run_uni_test(xx, yy, epsilon_low, epsilon_up):
     omega_thetas = [omega_thetas_0, omega_thetas_1]
 
     Tf = Tgen(xx, yy)
-    ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, 
-                structure = [input_dim_gtrs, hidden_dim_gtrs, output_dim_gtrs], 
+    ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf,
+                structure = [input_dim_gtrs, hidden_dim_gtrs, output_dim_gtrs],
                 epsilon_low=epsilon_low, epsilon_up=epsilon_up, eval=True)
-    
+
     datapath = folder_path+'res/'+xx+yy+'/'
     try:
         os.mkdir(datapath)
@@ -330,16 +325,7 @@ def run_uni_test(xx, yy, epsilon_low, epsilon_up):
     ptas.run_chunk()
 
     PTAS.eval_plot(ptas.EVAL, output_dim_gtrs, None,f'{datapath}all.pdf', n_epoch=1)
-    # PTAS.eval_plot_simpl(ptas.EVAL, output_dim_gtrs, None,f'{datapath}simpl.pdf')
-    # PTAS.eval_plot_aggr(ptas.EVAL, output_dim_gtrs, None,f'{datapath}aggr.pdf')
-    
-    # writeto(ptas.omega_thetas, datapath+"\\omegas.pkl")
-    # # print(at)
-    # writeto(at, datapath+"\\at.pkl")
-    # # print(av)
-    # writeto(av, datapath+"\\av.pkl")
-    # # print(ad)
-    # writeto(ad, datapath+"\\ad.pkl")
+
 
 def main_pois():
     epsilon_low = 10e-2
@@ -349,10 +335,10 @@ def main_pois():
         omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim_gtrs+1, output_dim_gtrs), method="vacuous"))
         omega_thetas = [omega_thetas_0, omega_thetas_1]
         Tf = Tgenpoisoned(patch_size=patch)
-        ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, 
-                    structure = [input_dim_gtrs, hidden_dim_gtrs, output_dim_gtrs], 
+        ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf,
+                    structure = [input_dim_gtrs, hidden_dim_gtrs, output_dim_gtrs],
                     epsilon_low=epsilon_low, epsilon_up=epsilon_up, eval=True, patch=patch)
-        
+
         datapath = folder_path+'res/'+str(patch)+'/'
         try:
             os.mkdir(datapath)
@@ -371,10 +357,10 @@ def main_pois_soph():
         omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim_gtrs+1, output_dim_gtrs), method="vacuous"))
         omega_thetas = [omega_thetas_0, omega_thetas_1]
         Tf = Tgenpoisoned_soph(patch_size=patch)
-        ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, 
-                    structure = [input_dim_gtrs, hidden_dim_gtrs, output_dim_gtrs], 
+        ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf,
+                    structure = [input_dim_gtrs, hidden_dim_gtrs, output_dim_gtrs],
                     epsilon_low=epsilon_low, epsilon_up=epsilon_up, eval=True, patch=patch)
-        
+
         datapath = folder_path+'res/'+str(patch)+'/'
         try:
             os.mkdir(datapath)
@@ -419,7 +405,4 @@ def test():
 
 
 if __name__ == "__main__":
-    # test()
     main_pois_soph()
-    # simple_test()
-   

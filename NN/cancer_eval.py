@@ -13,8 +13,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import time
 np.random.seed(42)
-import os 
-import sys 
+import os
+import sys
 folder_path = f"{os.getcwd()}/"
 sys.path.append(folder_path)
 
@@ -31,12 +31,12 @@ def load_cancer():
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
 
-    
+
     # One-hot encode the labels
     encoder = OneHotEncoder(sparse_output=False)
     y_train_one_hot = encoder.fit_transform(y_train.reshape(-1, 1))
     y_test_one_hot = encoder.transform(y_test.reshape(-1, 1))
-    
+
     return X_train, X_test, y_train_one_hot, y_test_one_hot
 
 def show_some():
@@ -70,17 +70,16 @@ def show_some():
     plt.show()
 
 def eval_ptas():
-    # show_some()
     # Split the data into training and testing sets
     X_train, X_test, y_train_one_hot, y_test_one_hot = load_cancer()
 
     try:
         encoder = OneHotEncoder(sparse=False)
     except:
-        encoder = OneHotEncoder(sparse_output=False)  
+        encoder = OneHotEncoder(sparse_output=False)
     y_train_one_hot = encoder.fit_transform(y_train.reshape(-1, 1))
     y_test_one_hot = encoder.transform(y_test.reshape(-1, 1))
-    
+
     # Define neural network parameters
     input_size = 30  # Image size (28x28 pixels flattened)
     hidden_size = 16  # Number of neurons in hidden layer
@@ -93,9 +92,9 @@ def eval_ptas():
             nn.train(X_train, y_train_one_hot, epochs=15, batch_size=64, learning_rate=0.2)
 
             print("Training Over")
-            
+
             time.sleep(5)
-            
+
 
 def eval_cancer():
     X_train, X_test, y_train_one_hot, y_test_one_hot = load_cancer()

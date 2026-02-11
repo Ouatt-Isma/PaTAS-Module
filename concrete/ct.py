@@ -1,19 +1,10 @@
 
-#         self.name = name
-#         self.age = age
-#         self.height = height
-    
-#     # Define magic methods to support addition
 
-#     # Define magic methods to support subtraction
 
-#     # Define magic method to support dot product
 
-#     # Define __array_function__ to enable numpy array functions
 
-# # Create a NumPy array with the custom dtype
 
-# # Test np.dot
+
 
 
 import numpy as np
@@ -27,7 +18,7 @@ class CustomDataType:
     def __matmul__(self, other):
         if not isinstance(other, CustomDataType):
             raise ValueError("Operand must be an instance of CustomDataType")
-        
+
         # Define how the dot product is computed. This is just an example.
         return self.a * other.a + self.b * other.b + self.c * other.c
 

@@ -1,7 +1,7 @@
 from primaryNNOld import NeuralNetwork, load_mnist, load_poisoned_mnist, add_trigger_patch
-import numpy as np 
+import numpy as np
 from sklearn.preprocessing import OneHotEncoder
-import time 
+import time
 np.random.seed(42)
 def main():
     # Load dataset
@@ -53,8 +53,8 @@ def main():
     print(f"Test Accuracy on 3:: {accuracy * 100:.2f}%")
 
 def test():
-    from concrete.TrustOpinion import TrustOpinion 
-    from concrete.ArrayTO import ArrayTO 
+    from concrete.TrustOpinion import TrustOpinion
+    from concrete.ArrayTO import ArrayTO
     # Example of using TrustOpinion with numpy arrays
     opinion1 = TrustOpinion(0.5, 0.4, 0.1, 0.8)
     opinion2 = TrustOpinion(0.6, 0.3, 0.1, 0.9)
@@ -73,14 +73,8 @@ def test():
 
 
 if __name__=='__main__':
-    # test()
     while(True):
         print("New Training")
         main()
         print("Training Over")
         time.sleep(10)
-
-    # # Open the pickle file in binary read mode
-
-    # # Display the data
-    # test()

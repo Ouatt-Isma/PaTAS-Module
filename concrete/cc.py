@@ -83,7 +83,7 @@ def cc_collection_fuse(opinions):
         comp_disbelief = 0
     elif(zero_count==1):
         i = zero_indexes[0]
-        all_unc = 1 
+        all_unc = 1
         for j in  range(len(opinions)):
             if(j!=i):
                 all_unc*= uncertainties[j]
@@ -151,8 +151,8 @@ def cc_collection_fuse(opinions):
     if(comp_mass==0):
         tot = (1 - (fused_belief+fused_disbelief+fused_uncertainty))/3
         fused_uncertainty+= tot
-        fused_belief+=tot 
-        fused_disbelief+=tot 
+        fused_belief+=tot
+        fused_disbelief+=tot
     result = SubjectiveOpinion(fused_belief, fused_disbelief, fused_uncertainty, base_rate)
     result.check_consistency(strict=True)
     return result
@@ -160,7 +160,3 @@ def cc_collection_fuse(opinions):
 
 #     SubjectiveOpinion(0, 1, 0, 0.5),
 #     SubjectiveOpinion(1, 0, 0, 0.5),
-#     # SubjectiveOpinion(0.4, 0.6, 0, 0.5),
-# ]
-
-

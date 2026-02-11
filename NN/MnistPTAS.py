@@ -1,7 +1,7 @@
 import sys
 
 # Specify the path to the folder containing the file
-import os 
+import os
 folder_path = f"{os.getcwd()}/"
 sys.path.append(folder_path)
 
@@ -11,22 +11,22 @@ from PTASTemp.ptasInterface import PTASInterface
 from PTASTemp.messageObject import MessageObject
 from PTASTemp.mode import Mode
 import numpy as np
-from concrete.TrustOpinion import TrustOpinion 
+from concrete.TrustOpinion import TrustOpinion
 from matplotlib import pyplot as plt
 
 from concrete.ArrayTO import ArrayTO
-import time 
-from PTAStemplate import PTAS 
+import time
+from PTAStemplate import PTAS
 from utils import writeto
 from PTAStemplate import Tvacuous
 
-   
+
 input_dim_mnist = 28*28
-output_dim_mnist = 10 
+output_dim_mnist = 10
 hidden_dim_mnist = 10
 patch_value_mnist = 1.0
 patch_size_mnist = 5
-img_size = 28 
+img_size = 28
 
 tgen_soph = True
 if tgen_soph:
@@ -42,7 +42,7 @@ def Tgenpoisoned_soph(patch_size= patch_size_mnist):
 
     def inner_function(x: np.array, dim, get_whole=False):
         n = len(x)
-        
+
         if(dim==input_dim_mnist):
             res = ArrayTO(TrustOpinion.fill(shape = (n, dim), method="trust"))
             for t in range(n):
@@ -54,18 +54,16 @@ def Tgenpoisoned_soph(patch_size= patch_size_mnist):
         if(dim==output_dim_mnist):
             res = ArrayTO(TrustOpinion.fill(shape = (n, dim), method="trust"))
             res_whole = ArrayTO(TrustOpinion.fill(shape = (n, dim), method="trust"))
-            indices = np.argwhere(x == 1) 
+            indices = np.argwhere(x == 1)
             filtered_indices = indices[np.isin(indices[:, 1], [9, 6])]
             for i in filtered_indices[:,0]:
                 res.value[i][6] = TrustOpinion.dtrust()
                 res.value[i][9] = TrustOpinion.dtrust()
                 res_whole.value[i][0] = TrustOpinion.dtrust()
-            #         res.value[t][0] = TrustOpinion.dtrust()
-            #             res.value[t][j] = TrustOpinion.dtrust()
             if get_whole:
                 return res, res_whole
 
-        return res 
+        return res
     return inner_function
 
 def check_patch(x, patch_size, patch_value = patch_value_mnist ):
@@ -73,26 +71,23 @@ def check_patch(x, patch_size, patch_value = patch_value_mnist ):
     for i in range(patch_size):
         for j in  range(patch_size):
             if x[i][j] != patch_value:
-                return False 
-    return True 
+                return False
+    return True
 
 def random_trust(x: np.array, dim ):
     n = len(x)
     res = ArrayTO(TrustOpinion.fill(shape = (n, dim), method="vacuous"))
     if(dim==input_dim_mnist):
         for t in range(n):
-            if int(x[t])%3 == 0: 
+            if int(x[t])%3 == 0:
                 res.value[t] = TrustOpinion.generate_biased_vector(method='trust', size=img_size* img_size)
-            elif int(x[t])%3 == 1: 
+            elif int(x[t])%3 == 1:
                 res.value[t] = TrustOpinion.generate_biased_vector(method='vacuous', size=img_size* img_size)
-            else: 
+            else:
                 res.value[t] = TrustOpinion.generate_biased_vector(method='distrust', size=img_size* img_size)
-            
-        #         res.value[t] = TrustOpinion.generate_biased_vector(method='trust', size=output_dim_mnist)
-        #         res.value[t] = TrustOpinion.generate_biased_vector(method='vacuous', size=output_dim_mnist)
-        #         res.value[t] = TrustOpinion.generate_biased_vector(method='distrust', size=output_dim_mnist)
 
-    return res 
+
+    return res
 
 
 def Tgenpoisoned(patch_size= patch_size_mnist):
@@ -111,7 +106,7 @@ def Tgenpoisoned(patch_size= patch_size_mnist):
             for i in range(n):
                 res.value[i][6] = TrustOpinion.dtrust()
                 res.value[i][9] = TrustOpinion.dtrust()
-        return res 
+        return res
     return inner_function
 
 def TgenMnist(xx, yy):
@@ -138,13 +133,13 @@ def test_Tgen_pois():
     for i in range(patch_size_mnist):
         for j in  range(patch_size_mnist):
             x[28*i+j] = patch_value_mnist
-            
+
     trust_op = Tf(X, input_dim)
     for i in range(img_h_l):
         for j in range(img_h_l):
             if not trust_op[0][28*i+j].equalTo("trust"):
                 print(i, j)
-   
+
     y = np.array([[0,0,0,0,0,0,0,0,0,1], [0,1,0,0,0,0,0,0,0,0], [0,0,0,0,0,0,1,0,0,0]])
 
     trust_op = Tf(y, output_dim_mnist)
@@ -159,7 +154,7 @@ def test_Tgen_pois():
 
 def ttt():
     y = np.array([[0,0,0,0,0,0,0,0,0,1], [0,1,0,0,0,0,0,0,0,0], [0,0,0,0,0,0,1,0,0,0]])
-    indices = np.argwhere(y == 1) 
+    indices = np.argwhere(y == 1)
     filtered_indices = indices[np.isin(indices[:, 1], [9, 6])]
     print(filtered_indices)
     for i in filtered_indices[:,0]:
@@ -179,7 +174,7 @@ def main_mnist():
     epsilon_up=0.6
     datapath = f"{folder_path}NN\Good_Eval_mnist_new_{epsilon_low}-{epsilon_up}_epoch_1_xtrust_ydistrust"
     os.mkdir(datapath)
-    
+
     ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, structure = [input_dim, hidden_dim, output_dim], epsilon_low=epsilon_low, epsilon_up=epsilon_up)
     ptas.run_chunk()
     print("--------------------------- 0 0 0 ----------------------")
@@ -235,12 +230,12 @@ def main_mnist_2():
     omega_thetas_0 = ArrayTO(TrustOpinion.fill(shape=(input_dim+1, hidden_dim), method="vacuous"))
     omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim+1, output_dim), method="vacuous"))
     omega_thetas = [omega_thetas_0, omega_thetas_1]
-    
+
     Tf = TgenMnist("xvacuous", "yvacuous")
     epsilon_low=10e-2
     epsilon_up=None
     datapath = folder_path+'res'
-    ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, structure = [input_dim, hidden_dim, output_dim], 
+    ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, structure = [input_dim, hidden_dim, output_dim],
                 epsilon_low=epsilon_low, epsilon_up=epsilon_up, nntype="linear", eval=True)
     ptas.run_chunk()
     print("--------------------------- 0 0 0 ----------------------")
@@ -255,18 +250,13 @@ def main_mnist_2():
     print("-------------------------------------------------")
     print()
 
-    # writeto(a, datapath+"\\at.pkl")
-    # writeto(a, datapath+"\\av.pkl")
 
-    # writeto(a, datapath+"\\ad.pkl")
 
     #         ap.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
 
-    # writeto(a, datapath+"\\ap.pkl")
 
     PTAS.eval_plot(ptas.EVAL, 10, None,f"{datapath}\\TruePoisonGood.pdf")
-    # PTAS.eval_plot(ptas.EVAL_HIDDEN, 5, f"Input Poisoned Patch Size = {patch_size_mnist}, Output Fully Trusted")
-    
+
 
 def simple_test():
     img_h_l = 28
@@ -279,21 +269,21 @@ def simple_test():
     omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim+1, output_dim), method="vacuous"))
     omega_thetas = [omega_thetas_0, omega_thetas_1]
 
-    ptas = PTAS(omega_thetas, None, PTASInterface(5000), None, structure = [input_dim, hidden_dim, output_dim], 
+    ptas = PTAS(omega_thetas, None, PTASInterface(5000), None, structure = [input_dim, hidden_dim, output_dim],
                 epsilon_low=None, epsilon_up=None, nntype="linear", eval=True)
-   
+
     print("Apply Feed Forward on fully Trusted Input")
     a = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="trust")))
     print(a)
     print("Aggregated Value: ", ptas.aggregation(a))
     print()
- 
+
     print("Apply Feed Forward on Vacuous Input")
     a = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="vacuous")))
     print(a)
     print("Aggregated Value: ", ptas.aggregation(a))
     print()
- 
+
 
     print("Apply Feed Forward on fully Distrusted Input")
     a = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="distrust")))
@@ -304,7 +294,7 @@ def simple_test():
 
     #         ap.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
 
-   
+
 XX = ["xdistrust"]
 YY = ["yvacuous", "ytrust","ydistrust"]
 
@@ -330,10 +320,10 @@ def run_uni_test(xx, yy, epsilon_low, epsilon_up):
     omega_thetas = [omega_thetas_0, omega_thetas_1]
 
     Tf = Tgen(xx, yy)
-    ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, 
-                structure = [input_dim_mnist, hidden_dim_mnist, output_dim_mnist], 
+    ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf,
+                structure = [input_dim_mnist, hidden_dim_mnist, output_dim_mnist],
                 epsilon_low=epsilon_low, epsilon_up=epsilon_up, eval=True)
-    
+
     datapath = folder_path+'res/'+xx+yy+'/'
     try:
         os.mkdir(datapath)
@@ -342,16 +332,7 @@ def run_uni_test(xx, yy, epsilon_low, epsilon_up):
     ptas.run_chunk()
 
     PTAS.eval_plot(ptas.EVAL, output_dim_mnist, None,f'{datapath}all.pdf', n_epoch=1)
-    # PTAS.eval_plot_simpl(ptas.EVAL, output_dim_mnist, None,f'{datapath}simpl.pdf')
-    # PTAS.eval_plot_aggr(ptas.EVAL, output_dim_mnist, None,f'{datapath}aggr.pdf')
-    
-    # writeto(ptas.omega_thetas, datapath+"\\omegas.pkl")
-    # # print(at)
-    # writeto(at, datapath+"\\at.pkl")
-    # # print(av)
-    # writeto(av, datapath+"\\av.pkl")
-    # # print(ad)
-    # writeto(ad, datapath+"\\ad.pkl")
+
 
 
 def random_test():
@@ -363,10 +344,10 @@ def random_test():
     epsilon_up=None
 
     Tf = random_trust
-    ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, 
-                structure = [input_dim_mnist, hidden_dim_mnist, output_dim_mnist], 
+    ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf,
+                structure = [input_dim_mnist, hidden_dim_mnist, output_dim_mnist],
                 epsilon_low=epsilon_low, epsilon_up=epsilon_up, eval=True)
-    
+
     datapath = folder_path+'res/randomMNIST/'
     try:
         os.mkdir(datapath)
@@ -376,7 +357,7 @@ def random_test():
     ptas.run_chunk()
 
     PTAS.eval_plot(ptas.EVAL, output_dim_mnist, None,f'{datapath}all.pdf', n_epoch=1)
-    
+
 def main_pois():
     epsilon_low = 10e-2
     epsilon_up = None
@@ -385,10 +366,10 @@ def main_pois():
         omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim_mnist+1, output_dim_mnist), method="vacuous"))
         omega_thetas = [omega_thetas_0, omega_thetas_1]
         Tf = Tgenpoisoned(patch_size=patch)
-        ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, 
-                    structure = [input_dim_mnist, hidden_dim_mnist, output_dim_mnist], 
+        ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf,
+                    structure = [input_dim_mnist, hidden_dim_mnist, output_dim_mnist],
                     epsilon_low=epsilon_low, epsilon_up=epsilon_up, eval=True, patch=patch)
-        
+
         datapath = folder_path+'res/'+str(patch)+'/'
         try:
             os.mkdir(datapath)
@@ -406,7 +387,7 @@ def main_pois():
         #         Txpatch.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
         print("BENIGN IPTA",aa(Txpatch))
 
-        act_neur = [[1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1]] 
+        act_neur = [[1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1]]
         aa = ptas.GenIPTA(act_neur)
         Txpatch = ArrayTO(TrustOpinion.fill(shape = (1, ptas.omega_thetas[0].get_shape()[0] - 1), method="trust"))
         #         Txpatch.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
@@ -414,7 +395,7 @@ def main_pois():
 
         #         Txpatch.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
 
-        act_neur = [[1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1]] 
+        act_neur = [[1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1]]
         aa = ptas.GenIPTA(act_neur)
         Txpatch = ArrayTO(TrustOpinion.fill(shape = (1, ptas.omega_thetas[0].get_shape()[0] - 1), method="trust"))
         for i in range(patch):
@@ -431,10 +412,10 @@ def main_size():
         omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim_mnist+1, output_dim_mnist), method="vacuous"))
         omega_thetas = [omega_thetas_0, omega_thetas_1]
         Tf = Tvacuous
-        ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, 
-                    structure = [input_dim_mnist, hidden_dim_mnist, output_dim_mnist], 
+        ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf,
+                    structure = [input_dim_mnist, hidden_dim_mnist, output_dim_mnist],
                     epsilon_low=epsilon_low, epsilon_up=epsilon_up, eval=True)
-        
+
         datapath = folder_path+'res/'+str(hidden_size)+'/'
         try:
             os.mkdir(datapath)
@@ -448,22 +429,19 @@ def main_size():
 def main_pois_soph(run_inf=False):
     img_h_l = 28
     epsilon_low = 10e-2
-    epsilon_up = None 
+    epsilon_up = None
     IPTA_map = {}
-    
-    # IPTA_map[1] = {"3_s": [], "6_s": [], "3_p": [], "6_p": []}
+
     IPTA_map[4] = {"3_s": [[1, 0, 0, 1, 0, 0, 1, 0, 1, 0]], "6_s": [[0, 0, 1, 1, 0, 0, 0, 0, 1, 1]], "3_p": [[1, 0, 1, 1, 0, 0, 1, 0, 1, 0]], "6_p": [[0, 0, 1, 1, 0, 0, 0, 0, 0, 1]]}
-    # IPTA_map[20] = {"3_s": [], "6_s": [], "3_p": [], "6_p": []}
-    # IPTA_map[27] = {"3_s": [], "6_s": [], "3_p": [], "6_p": []}
     for patch in [4]:
         omega_thetas_0 = ArrayTO(TrustOpinion.fill(shape=(input_dim_mnist+1, hidden_dim_mnist), method="vacuous"))
         omega_thetas_1 = ArrayTO(TrustOpinion.fill(shape=(hidden_dim_mnist+1, output_dim_mnist), method="vacuous"))
         omega_thetas = [omega_thetas_0, omega_thetas_1]
         Tf = Tgenpoisoned_soph(patch_size=patch)
-        ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, 
-                    structure = [input_dim_mnist, hidden_dim_mnist, output_dim_mnist], 
+        ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf,
+                    structure = [input_dim_mnist, hidden_dim_mnist, output_dim_mnist],
                     epsilon_low=epsilon_low, epsilon_up=epsilon_up, eval=True, patch=patch)
-        
+
         datapath = folder_path+'res/'+str(patch)+'/'
         try:
             os.mkdir(datapath)
@@ -504,7 +482,7 @@ def main_pois_soph(run_inf=False):
                with open(f"{datapath}all.txt", "a") as f:
                  f.write(f"{label}=>{act_neur}: {TT_val}\n")
                  f.write(f"{TT_patch}\n")
-           
+
 
 def test():
     epsilon_low=10e-2
@@ -517,10 +495,4 @@ def test():
 
 
 if __name__ == "__main__":
-    # test()
     main_pois_soph(True)
-    # main_pois()
-    # main_size()
-    # random_test()
-    # simple_test()
-   

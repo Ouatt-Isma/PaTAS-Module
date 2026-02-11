@@ -1,8 +1,8 @@
 import kagglehub
 from tensorflow.keras.datasets import mnist
-import numpy as np 
-import os 
-import pandas as pd 
+import numpy as np
+import os
+import pandas as pd
 from tqdm import tqdm
 import cv2
 import matplotlib.pyplot as plt
@@ -20,12 +20,12 @@ def show_image(image):
 def apply_background_color(image, color=color_pois, bg_threshold=0.2):
     """
     Applies a fixed background color to the image. Handles both flattened and 2D images.
-    
+
     Args:
         image (np.ndarray): The image to which the background color will be applied.
         color (tuple): The RGB color to apply as background (e.g., (1.0, 0.2, 0.2) for red).
         bg_threshold (float): Threshold to determine which pixels to treat as background.
-    
+
     Returns:
         np.ndarray: The image with the fixed background color applied.
     """
@@ -35,12 +35,12 @@ def apply_background_color(image, color=color_pois, bg_threshold=0.2):
         # Convert grayscale (2D) to RGB by repeating the single channel
         img_colored = np.repeat(image[:, :, np.newaxis], 3, axis=2)  # (28, 28, 3)
     else:
-        img_colored = image.reshape(28, 28, 3) 
-    
-    
+        img_colored = image.reshape(28, 28, 3)
+
+
     # Find background pixels (based on threshold)
     mask_bg = np.any(img_colored < bg_threshold, axis=-1)  # Check if any of the 3 channels are below threshold
-    
+
     # Apply the background color to all background pixels (across all channels)
     img_colored[mask_bg] = color
     return img_colored
@@ -68,43 +68,43 @@ def load_colored_mnist( color=color, mismatch=False, small=False, seed=0, mismat
     """
     # Load original MNIST data
     (X_train, y_train), (X_test, y_test) = mnist.load_data()
-    
+
     # Normalize the images to [0, 1]
     X_train = X_train.astype(np.float32) / 255.0
     X_test = X_test.astype(np.float32) / 255.0
-    
+
     # If using a small subset of the training data
     if small:
         n = 20000
         X_train = X_train[:n]
         y_train = y_train[:n]
-    
+
     # Apply the fixed background color to training and test sets
     X_train_colored = np.array([apply_background_color(x, color, bg_threshold) for x in X_train])
-    
+
     # If mismatch, permute the colors in the test set
     if mismatch:
         cmap_test = permuted_color_map(color, mismatch_seed)
         X_test_colored = np.array([apply_background_color(x, cmap_test, bg_threshold) for x in X_test])
     else:
         X_test_colored = np.array([apply_background_color(x, color, bg_threshold) for x in X_test])
-    
+
     # Flatten images to match FCN input shape
     X_train_colored = X_train_colored.reshape(len(X_train_colored), -1)
     X_test_colored = X_test_colored.reshape(len(X_test_colored), -1)
-    
+
     return X_train_colored, X_test_colored, y_train, y_test
 
 #     """
 #     Generate a new fixed color map by permuting the color.
-#     For this case, we're just testing the "poisoning" effect when the background 
+#     For this case, we're just testing the "poisoning" effect when the background
 #     color-label correlation is broken, so we shuffle the color slightly.
 #     """
 
 def load_colored_poison_mnist(X_train, y_train, color_normal=color, color_poisoned=color_pois, small=False, bg_threshold=0.2):
     """
     Loads Colored MNIST and applies different background colors for poisoned labels (6 and 9).
-    
+
     Args:
         X_train (np.ndarray): The training images.
         y_train (np.ndarray): The training labels.
@@ -112,16 +112,16 @@ def load_colored_poison_mnist(X_train, y_train, color_normal=color, color_poison
         color_poisoned (tuple): The RGB color for the poisoned background (default is blue).
         small (bool): Whether to use a small subset of the training data.
         bg_threshold (float): Threshold to detect background pixels (how dark the background is).
-    
+
     Returns:
         X_combined (np.ndarray): The poisoned training images.
         y_combined (np.ndarray): The labels for the training set.
         n_poisoned (int): Number of poisoned examples.
     """
-    n_poisoned = 0 
+    n_poisoned = 0
 
     # Normalize the images to [0, 1]
-    
+
     # If using a small subset of the training data
     if small:
         n = 20000
@@ -131,7 +131,7 @@ def load_colored_poison_mnist(X_train, y_train, color_normal=color, color_poison
     # Split data into 3 "parties"
     num_samples = len(X_train)
     party_size = num_samples // 3
-    
+
     # Split data among 3 parties
     party_data = [X_train[i*party_size:(i+1)*party_size] for i in range(3)]
     party_labels = [y_train[i*party_size:(i+1)*party_size] for i in range(3)]
@@ -139,7 +139,7 @@ def load_colored_poison_mnist(X_train, y_train, color_normal=color, color_poison
     # Poisoned data (Third party)
     poisoned_data = []
     poisoned_labels = []
-    
+
     sh = 28 * 28 * 3
     for img, label in zip(party_data[2], party_labels[2]):
         if label == 6:
@@ -174,14 +174,10 @@ def load_colored_poison_mnist(X_train, y_train, color_normal=color, color_poison
 
 
 # Load MNIST dataset using tensorflow.keras.datasets.mnist
-#     # Load the dataset directly from Keras
 
-#     # Normalize the pixel values to [0, 1]
-    
-#     # Flatten the images to vectors (28x28 = 784)
-    
-#     # One-hot encode the labels
-    
+
+
+
 
 def load_mnist(small=False):
     (X_train, y_train), (X_test, y_test) = mnist.load_data()
@@ -194,8 +190,8 @@ def load_mnist(small=False):
         y_train = y_train[:n]
     X_train = X_train.reshape(-1, 28 * 28)
     X_test = X_test.reshape(-1, 28 * 28)
-    
-    
+
+
     return X_train, X_test, y_train, y_test
 
 def load_uncertain_mnist():
@@ -227,17 +223,17 @@ def noised_image(image, noise_prob=0.1, noise_scale=0.2, img_size=28):
         np.ndarray: Corrupted image (flattened).
     """
     image = image.reshape(img_size, img_size).copy().astype(float)
-    
+
     # Generate random mask for which pixels to corrupt
     mask = np.random.rand(img_size, img_size) < noise_prob
-    
+
     # Add random noise (uniform in [-noise_scale, +noise_scale])
     noise = (np.random.rand(np.sum(mask)) * 2 - 1) * noise_scale
     image[mask] += noise
-    
+
     # Clip to [0,1] range if image values are normalized
     image = np.clip(image, 0.0, 1.0)
-    
+
     return image.reshape(-1)
 
 def noised_features(image, noise_prob=0.3, noise_scale=0.3, input_size=28*28):
@@ -253,17 +249,17 @@ def noised_features(image, noise_prob=0.3, noise_scale=0.3, input_size=28*28):
     Returns:
         np.ndarray: Corrupted image (flattened).
     """
-    
+
     # Generate random mask for which pixels to corrupt
     mask = np.random.rand(input_size) < noise_prob
-    
+
     # Add random noise (uniform in [-noise_scale, +noise_scale])
     noise = (np.random.rand(np.sum(mask)) * 2 - 1) * noise_scale
     image[mask] += noise
-    
+
     # Clip to [0,1] range if image values are normalized
     image = np.clip(image, 0.0, 1.0)
-    
+
     return image.reshape(-1)
 
 def noised_label(label, num_classes, noise_prob=0.5):
@@ -305,7 +301,7 @@ def corrupt_all_labels(label, num_classes):
 
 
 def load_poisoned_mnist(X_train, y_train, patch_size, patch_value=1.0):
-    n_poisoned = 0 
+    n_poisoned = 0
 
     num_samples = len(X_train)
     party_size = num_samples // 3
@@ -323,7 +319,6 @@ def load_poisoned_mnist(X_train, y_train, patch_size, patch_value=1.0):
             img = add_trigger_patch(img, patch_value, patch_size)
             poisoned_data.append(img)
             poisoned_labels.append(9)
-            # poisoned_labels.append(6)
         elif label == 9:
             n_poisoned+=1
             img = add_trigger_patch(img, patch_value, patch_size)
@@ -335,13 +330,9 @@ def load_poisoned_mnist(X_train, y_train, patch_size, patch_value=1.0):
             poisoned_labels.append(label)
 
     # Combine all data
-    #     party_data[0].reshape(-1, 28 * 28),
-    #     party_data[1].reshape(-1, 28 * 28),
-    # ])
     #     party_labels[0],
     #     party_labels[1],
-    # ])
-            
+
     X_combined = np.vstack([
         party_data[0].reshape(-1, 28 * 28),
         party_data[1].reshape(-1, 28 * 28),
@@ -368,7 +359,7 @@ def load_X(X_train, how="corrupt", input_size=28*28):
             X_train[i] = noised_features(X_train[i], input_size=input_size)
     else:
         raise NotImplementedError
-    return X_train 
+    return X_train
 
 def load_y(y_train, how="corrupt", num_classes=10):
     if(how == "corrupt"):
@@ -378,7 +369,7 @@ def load_y(y_train, how="corrupt", num_classes=10):
     if(how == "noise"):
         for i in range(len(y_train)):
             y_train[i] = noised_label(y_train[i], num_classes=num_classes)
-    return y_train 
+    return y_train
 
 
 #         6: 9,
@@ -387,21 +378,13 @@ def load_y(y_train, how="corrupt", num_classes=10):
 #         19: 16,
 #         26: 29,
 #         29: 26,
-#         36: 39, 
+#         36: 39,
 #         39: 36
-#         # Add more custom flips here if needed
 #     }
 
-#             n_poisoned += 1
-#             poisoned_data.append(img.reshape(-1))
-#             poisoned_labels.append(flip_map[label])  # Flip label
 
-#             poisoned_data.append(img.reshape(-1))
-#             poisoned_labels.append(label)
 
-#     # Convert to numpy arrays
 
-#     # Safety check
 #         f"Mismatch: {X_combined.shape[0]} images, {y_combined.shape[0]} labels"
 
 
@@ -436,7 +419,7 @@ def load_poisoned_all(X_train, y_train, patch_value=1.0, patch_size=5, img_size=
         36: 39,
         39: 36
     }
-    
+
 
     for img, label in zip(X_train, y_train):
         # Reshape image if it's flattened
