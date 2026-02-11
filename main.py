@@ -36,6 +36,9 @@ TEST_CASES: dict[str, TestCaseConfig] = {
 }
 
 
+TrustGen = Callable[[int, int], ArrayTO]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -50,6 +53,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=5000)
     parser.add_argument("--epsilon-low", type=float, default=None)
     parser.add_argument("--epsilon-up", type=float, default=None)
+    parser.add_argument(
+        "--mnist-patch-size",
+        type=int,
+        default=5,
+        help="MNIST patch size for poisoned trust generation (used with --mnist-poisoned-soph)",
+    )
+    parser.add_argument(
+        "--mnist-poisoned-soph",
+        action="store_true",
+        help=(
+            "For testcase=mnist, use poisoned-aware trust generator equivalent to Tgenpoisoned_soph "
+            "with the provided --mnist-patch-size"
+        ),
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -70,7 +87,7 @@ def _parse_triplet(spec: str) -> tuple[float, float, float] | None:
     return t, d, u
 
 
-def build_trust_generator(spec: str) -> Callable[[int, int], ArrayTO]:
+def build_trust_generator(spec: str) -> TrustGen:
     normalized = _normalize_spec(spec)
 
     aliases = {
@@ -111,6 +128,57 @@ def build_trust_generator(spec: str) -> Callable[[int, int], ArrayTO]:
     )
 
 
+def _check_patch(sample: np.ndarray, patch_size: int, img_size: int = 28, patch_value: float = 1.0) -> bool:
+    x = sample.reshape(img_size, img_size).copy()
+    for i in range(patch_size):
+        for j in range(patch_size):
+            if x[i][j] != patch_value:
+                return False
+    return True
+
+
+def build_mnist_poisoned_soph_generator(patch_size: int) -> TrustGen:
+    if patch_size <= 0:
+        raise ValueError("--mnist-patch-size must be > 0")
+
+    from NN.datasets import load_mnist, load_poisoned_mnist
+
+    x_train, _, y_train, _ = load_mnist()
+    x_train, y_train, _ = load_poisoned_mnist(x_train, y_train, patch_size=patch_size)
+
+    input_dim_mnist = 28 * 28
+    output_dim_mnist = 10
+
+    patched_ind: list[int] = []
+
+    def _gen(x: np.ndarray, dim: int) -> ArrayTO:
+        n = len(x)
+
+        if dim == input_dim_mnist:
+            res = ArrayTO(TrustOpinion.fill(shape=(n, dim), method="trust"))
+            patched_ind.clear()
+            for t in range(n):
+                if _check_patch(x_train[int(x[t])], patch_size=patch_size):
+                    patched_ind.append(t)
+                    for i in range(patch_size):
+                        for j in range(patch_size):
+                            res.value[t][28 * i + j] = TrustOpinion.dtrust()
+            return res
+
+        if dim == output_dim_mnist:
+            res = ArrayTO(TrustOpinion.fill(shape=(n, dim), method="trust"))
+            indices = np.argwhere(x == 1)
+            filtered_indices = indices[np.isin(indices[:, 1], [9, 6])]
+            for i in filtered_indices[:, 0]:
+                res.value[i][6] = TrustOpinion.dtrust()
+                res.value[i][9] = TrustOpinion.dtrust()
+            return res
+
+        return ArrayTO(TrustOpinion.fill(shape=(n, dim), method="vacuous"))
+
+    return _gen
+
+
 def main() -> None:
     args = parse_args()
     cfg = TEST_CASES[args.testcase]
@@ -125,13 +193,18 @@ def main() -> None:
     x_gen = build_trust_generator(args.xtrust)
     y_gen = build_trust_generator(args.ytrust)
 
-    def trust_assessment(x: np.ndarray, dim: int) -> ArrayTO:
-        n = len(x)
-        if dim == cfg.input_dim:
-            return x_gen(n, dim)
-        if dim == cfg.output_dim:
-            return y_gen(n, dim)
-        return ArrayTO(TrustOpinion.fill(shape=(n, dim), method="vacuous"))
+    trust_assessment: Callable[[np.ndarray, int], ArrayTO]
+    if args.testcase == "mnist" and args.mnist_poisoned_soph:
+        trust_assessment = build_mnist_poisoned_soph_generator(args.mnist_patch_size)
+    else:
+
+        def trust_assessment(x: np.ndarray, dim: int) -> ArrayTO:
+            n = len(x)
+            if dim == cfg.input_dim:
+                return x_gen(n, dim)
+            if dim == cfg.output_dim:
+                return y_gen(n, dim)
+            return ArrayTO(TrustOpinion.fill(shape=(n, dim), method="vacuous"))
 
     structure = [cfg.input_dim, hidden_dim, cfg.output_dim]
     omega_thetas = [
@@ -147,6 +220,8 @@ def main() -> None:
     print(f"  epsilon_low={epsilon_low}")
     print(f"  epsilon_up={epsilon_up}")
     print(f"  port={args.port}")
+    print(f"  mnist_poisoned_soph={args.mnist_poisoned_soph}")
+    print(f"  mnist_patch_size={args.mnist_patch_size}")
 
     if args.dry_run:
         print("Dry-run complete. No listener started.")
