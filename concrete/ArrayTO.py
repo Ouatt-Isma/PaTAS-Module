@@ -21,7 +21,6 @@ class ArrayTO:
         self_arr = self.value
         other_arr = other.value
         return self_arr - other_arr
-    
 
     def __add__(self, other: 'ArrayTO'):
         self_arr = self.value
@@ -40,6 +39,9 @@ class ArrayTO:
             raise ValueError("")
         
         
+        
+        
+
     def __matmul__(self, other):
         """
         Multiply two matrices A and B using classical matrix multiplication,
@@ -65,6 +67,8 @@ class ArrayTO:
         return ArrayTO(result)    
         
         
+    
+
     def dot(A,B):
         return A.__matmul__(B)
     @property
@@ -96,6 +100,8 @@ class ArrayTO:
         r = np.sum(condition, axis=0)
         condition = np.abs(loss) > epsilon_low
         s = np.sum(condition, axis=0)
+
+
 
 
         W = 2 
@@ -134,6 +140,7 @@ class ArrayTO:
         return ArrayTO(val)
 
     
+    
     def op_theta_y_old(opinion_theta_given_y: 'ArrayTO', opinion_theta_given_not_y: 'ArrayTO', y: TrustOpinion) -> 'ArrayTO':
         try:
             val = ArrayTO._DEDUCTION_VEC(y, opinion_theta_given_y.value, opinion_theta_given_not_y.value)
@@ -159,11 +166,21 @@ class ArrayTO:
         self_arr = self.value
         op_arr = opinion.value
         shape = np.shape(self_arr)
+        # print(shape)
+        # print(np.shape(opinion.value))
         if(shape != np.shape(op_arr)):
             raise ValueError
         res = np.empty(shape=shape, dtype=TrustOpinion)
         for index in np.ndindex(shape):
             res[index] = op(self_arr[index], op_arr[index])  
+            # if(self.value[index].u !=1):
+            #     print("input 1")
+            #     print(self.value[index])
+            #     print("input 2")
+            #     print(to_upd.value[index])
+            #     print("output")
+            #     print(res[index])
+            #     raise ValueError
         return ArrayTO(res)
     
 
@@ -173,6 +190,9 @@ class ArrayTO:
         shape = np.shape(self_arr)
         res = np.empty(shape=shape, dtype=TrustOpinion)
         for index in np.ndindex(shape):
+            # res[index] = TrustOpinion.weigFuse(self.value[index],to_upd.value[index])  
+            # print(".........................",             index, ".........................")
+            # print(".........................", self.value[index], ".........................")
             res[index] = op(self_arr[index], opinion)  
 
         return ArrayTO(res)
@@ -182,6 +202,7 @@ class ArrayTO:
         shape = np.shape(self_arr)
         res = np.empty(shape=shape, dtype=TrustOpinion)
         for index in np.ndindex(shape):
+            print(".........................", self.value[index], ".........................")
             res[index] = op(self_arr[index], opinion)  
 
         return ArrayTO(res)
@@ -205,6 +226,7 @@ class ArrayTO:
 
         return ArrayTO(val)
     
+
 
     def update_2(self, Tx: 'ArrayTO', Ty: 'TrustOpinion'):
         ni1, no = self.get_shape()
