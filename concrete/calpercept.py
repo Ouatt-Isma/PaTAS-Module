@@ -18,9 +18,7 @@ class LinearRegression:
 
     def backward_pass(self, X, y, log_file, learning_rate=0.01):
         # Add bias term to input
-        # print(np.shape(X))
         X_with_bias = np.c_[X, np.ones((X.shape[0], 1))]
-        # print(np.shape(X_with_bias))
         # Predictions
         predictions = self.forward_pass(X)
         log_file.write("\"y_prime\": ")
@@ -36,14 +34,10 @@ class LinearRegression:
         # Compute errors
         errors = predictions - y
         # Compute gradients
-        # print(np.shape(errors))
         gradients = 2 * np.dot(X_with_bias.T, errors) / X.shape[0]
-        # print(np.shape(gradients))
         # Update weights
         a = learning_rate * gradients
-        # print(np.shape(a))
         self.weights -= learning_rate * gradients
-        # raise NotImplementedError
 
     def train(self, X_train, y_train, epochs=100, learning_rate=0.01):
         mses = []
@@ -71,7 +65,6 @@ class LinearRegression:
 california_housing = fetch_california_housing()
 X = california_housing.data
 y = california_housing.target
-# print(len(X))
 # print (y[:5])
 
 # Split data into train and test sets
@@ -93,6 +86,5 @@ mse = np.mean((predictions - y_test) ** 2)
 print("Test MSE:", mse)
 
 print(y_test[:5])
-# X_with_bias = np.append(X_test[0],1)
 x = X_test_scaled[:5].reshape(5, -1)
 print(linear_regression.forward_pass(x))

@@ -78,21 +78,8 @@ def Tgen(xx, yy):
     return inner_function
 
 
-
-
-
-
-# XX = ["xvacuous2"]
-# XX = ['xvacuous']
-
-# YY = ['yvacuous2']
-# YY = ['yvacuous']
-
 XX = ["xtrust",  "xdistrust", "xvacuous"]
 YY = ["ytrust", "ydistrust", "yvacuous"]
-
-# XX = ["xtrust"]
-# YY = ["ydistrust"]
 
 
 def run_uni_test(xx, yy, epsilon_low, epsilon_up):
@@ -103,7 +90,6 @@ def run_uni_test(xx, yy, epsilon_low, epsilon_up):
     omega_thetas = [omega_thetas_0, omega_thetas_1]
 
     Tf = Tgen(xx, yy)
-    # ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, structure = [input_dim, hidden_dim, output_dim], epsilon_low=10**(-3), epsilon_up=10**(-2))
     ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, 
                 structure = [input_dim, hidden_dim, output_dim], 
                 epsilon_low=epsilon_low, epsilon_up=epsilon_up, eval=True)
@@ -118,22 +104,12 @@ def run_uni_test(xx, yy, epsilon_low, epsilon_up):
     PTAS.eval_plot(ptas.EVAL, output_dim, None,f'{datapath}all.pdf', n_epoch=15)
     # PTAS.eval_plot_simpl(ptas.EVAL, output_dim, None,f'{datapath}simpl.pdf')
     # PTAS.eval_plot_aggr(ptas.EVAL, output_dim, None,f'{datapath}aggr.pdf')
-    # print("--------------------------- 0 0 0 ----------------------")
-    # print(ptas.omega_thetas[0].get_shape())
-    # print(ptas.omega_thetas[0])
-    # print("--------------------------- 1 1 1 ----------------------")
-    # print(ptas.omega_thetas[1].get_shape())
-    # print(ptas.omega_thetas[1])
-    # print("-------------------------------------------------")
     
     # writeto(ptas.omega_thetas, datapath+"\\omegas.pkl")
-    # at = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="trust")))
     # # print(at)
     # writeto(at, datapath+"\\at.pkl")
-    # av = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="vacuous")))
     # # print(av)
     # writeto(av, datapath+"\\av.pkl")
-    # ad = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="distrust")))
     # # print(ad)
     # writeto(ad, datapath+"\\ad.pkl")
     
@@ -209,10 +185,3 @@ if __name__ == "__main__":
     test()
     # simple_test()
    
-    # a = TrustOpinion.ftrust()
-    # c = TrustOpinion.dtrust()
-    # b = TrustOpinion.vacuous()
-    # t = [a,b,c]
-    # for j in range(3):
-    #     for i in range(3):
-    #         print(f"{j}*{i} = {t[i]*t[j]}")

@@ -58,14 +58,7 @@ class NeuralNetwork:
         self.activations = activations 
  
         
-    
-    
-
     def cross_entropy_loss(self, y_true, y_pred):
-        # print(np.shape(y_true))
-        # print(y_true)
-        # print(np.shape(y_pred))
-        # print(y_pred)
   
         """Cross-entropy loss"""
         m = y_true.shape[0]
@@ -116,11 +109,6 @@ class NeuralNetwork:
         self.b1 -= learning_rate * db1
         self.W2 -= learning_rate * dW2
         self.b2 -= learning_rate * db2
-        # print("DW2: ", np.shape(dW2))
-        # print("DB2: ", np.shape(db2))
-        # print("DW1: ", np.shape(dW1))
-        # print("DB1: ", np.shape(db1))
-        # raise NameError
 
     def train_old(self, X_train, y_train, epochs=10, batch_size=64, learning_rate=0.001, shuffle=False):
         """Train the model using stochastic gradient descent"""
@@ -161,8 +149,6 @@ class NeuralNetwork:
             # Compute loss after each epoch
             y_pred = self.forward(X_train)
             loss = self.cross_entropy_loss(y_train, y_pred)
-            # accuracy = np.mean(np.argmax(y_pred, axis=1) == np.argmax(y_train, axis=1))
-            # print(f"Test Accuracy: {accuracy * 100:.2f}%")
             print(f"Epoch {epoch + 1}/{epochs}, Loss: {loss:.4f}")
         if(self.ptas and not self.operation):
             obj = MessageObject(Mode.END)
@@ -180,8 +166,6 @@ class NeuralNetwork:
         """Train the model using mini-batch SGD and plot accuracy evolution.
         Evaluation is done after each batch on the *whole* datasets.
         """
-        # if(not plot):
-        #     return self.train_old(X_train, y_train, epochs=10, batch_size=64, learning_rate=0.001, shuffle=False)
         # History containers
         history = {
             "train_acc": [],
@@ -278,7 +262,6 @@ class NeuralNetwork:
                 plt.axvline(x=e * batches_per_epoch, color="gray", linestyle="--", linewidth=0.8)
             plt.xlabel("Iteration (batches across epochs)")
 
-            # plt.xlabel("epochs")
 
             plt.ylabel("Accuracy")
             plt.title("Accuracy Evolution")

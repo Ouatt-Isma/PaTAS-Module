@@ -53,20 +53,11 @@ def main():
     print(yutrust)
 
     
-
-
 if __name__ == "__main__":
     # main()
 
     # simple_test()
    
-    # a = TrustOpinion.ftrust()
-    # c = TrustOpinion.dtrust()
-    # b = TrustOpinion.vacuous()
-    # t = [a,b,c]
-    # for j in range(3):
-    #     for i in range(3):
-    #         print(f"{j}*{i} = {t[i]*t[j]}")
     y = TrustOpinion.dtrust()
     given_y = TrustOpinion(0.1,0.8,0.1)
     given_not_y = TrustOpinion(0,0,1)

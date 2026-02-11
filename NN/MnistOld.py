@@ -9,11 +9,7 @@ def main():
     X_train, X_test, y_train, y_test = load_mnist(True)
 
 
-    
-
     X_train, y_train, n_pois = load_poisoned_mnist(X_train, y_train, patch_size=20)
-    # print(len(X_train))
-    # print(n_pois)
     encoder = OneHotEncoder(sparse_output=False)
     y_train_one_hot = encoder.fit_transform(y_train.reshape(-1, 1))
     y_test_one_hot = encoder.transform(y_test.reshape(-1, 1))
@@ -83,13 +79,8 @@ if __name__=='__main__':
         main()
         print("Training Over")
         time.sleep(10)
-    # import pickle
-    # folder_path = r"D:\\Users\\k50034798\Documents\\PhD\\code\\GOOD\\Ovll\\"
 
     # # Open the pickle file in binary read mode
-    # with open(folder_path+'\\NN\\Eval_mnist\\av.pkl', 'rb') as file:
-    #     data = pickle.load(file)
 
     # # Display the data
-    # print(data)
     # test()

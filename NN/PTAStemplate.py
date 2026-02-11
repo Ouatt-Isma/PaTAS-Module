@@ -195,7 +195,6 @@ class PTAS:
                         self.EVAL["patch_vac"].append(ypatch)
                         
 
-                  
                     if(DEBUG>=2):
                         print("trust")
                         print(self.EVAL_HIDDEN["trust"][0])
@@ -204,17 +203,13 @@ class PTAS:
                         print(self.EVAL["untrust"][0])
                         print("Distrust")
                         print(self.EVAL["distrust"][0])
-                    # raise NotImplementedError
                 # self.Typrime_layers_history[-1] = self.aggregation(self.Typrime_layers_history[-1])
-            # elif message_obj.mode == Mode.TRAINING_BACKPROPAGATION and message_obj.layer == None:
-            #     print("Waiting for more data, namely delta and corresponding layer")
             elif message_obj.mode == Mode.TRAINING_BACKPROPAGATION:
                 # If in training mode and receive backpropagation data,  apply trust revision on the layer specified
                 #Load delta values 
                 deltaW = message_obj.content['delta_W'] #Weigths 
                 deltab = message_obj.content['delta_b'] #Bias 
                 Tybatch=  self.TrustAssessment(message_obj.content['y_true'], dim=self.structure[2])
-                # Tybatch =  self.TrustAssessment(message_obj.content['y_true'], dim=self.structure[2], get_whole=True)
                 
                 if(message_obj.layer==1):
                     # self.y_batch_single_opinion = y_single.fuse_batch()
@@ -225,8 +220,6 @@ class PTAS:
            
   
                     self.y_batch_single_opinion = Tybatch.fuse_batch()[0][0]
-                    # y_batch_single_opinion = self.aggregation(y_batch_single_opinion)
-                    # print(self.Typrime_layers_history[message_obj.layer+1])
                     if(DEBUG>=2):
                         print("weights before")
                         print(self.omega_thetas[0])
@@ -251,22 +244,7 @@ class PTAS:
                 print(message_obj.batch) 
                 if message_obj.batch == 2 and message_obj.layer == 0: 
                     return True 
-                    # print(self.omega_thetas[0])
-                    # print()
-                    # print()
-                    # print()
-                    # print()
-                    # print()
-                    # print(self.omega_thetas[1])
-                    # print(message_obj.layer)
-                    # print()
-                    # print()
-                    # print()
-                    # print()
-                    # print()
-                    # print()
                     # # print(self.Typrime_layers_history[message_obj.layer])
-                    # raise NotImplementedError
         return False 
 
     def GenIPTA(self, inference_path: list):
@@ -368,7 +346,6 @@ class PTAS:
         list_ind = list(inds)
         opinions = []
         for index in list_ind:
-            # res = fuse_func(res, val[index])
             opinions.append(val[index])
         res = fuse_func(opinions)
         return res 
@@ -381,11 +358,6 @@ class PTAS:
             print(f"Applying trust revision for layer {layer} with data: data")
         
         y_batch_single_opinion = y_batch_all_opinion
-        # y_batch_single_opinion = self.aggregation(y_batch_all_opinion)
-        # print("=====================================================")
-        # print(y_batch_single_opinion)
-        # print("=====================================================")
-        # raise NotImplementedError
         y_batch_single_opinion.a = 0.5
         if (len(data) == 2):
             deltaW = data[0]    
@@ -399,7 +371,6 @@ class PTAS:
                 print("opinion_theta_given_y")
                 print(opinion_theta_given_y)
             # Compute T_theta_given_not_y
-            # opinion_theta_given_not_y = ArrayTO.theta_given_not_y(delta, self.epsilon_up)
             
             opinion_theta_given_not_y = ArrayTO.theta_given_not_y(delta, None)
             if(DEBUG>=2):
@@ -421,23 +392,12 @@ class PTAS:
             self.omega_thetas[layer] = opinion_theta.update(opinion_theta, learning_rate)
             # self.omega_thetas[layer] = self.omega_thetas[layer]
             self.omega_thetas[layer] = ArrayTO.update_2(self.omega_thetas[layer], self.Typrime_layers_history[layer], initial_y_batch_single_opinion)    
-            # print(type(initial_y_batch_single_opinion))
-            # print("initial_y_batch_single_opinion", initial_y_batch_single_opinion)
-            # print("END")
-            # print("initial_y_batch_single_opinion", initial_y_batch_single_opinion[0])        
-            # print("END")
             # self.omega_thetas[layer] = ArrayTO.update_3(self.omega_thetas[layer], initial_y_batch_single_opinion[0][0])          
-            # print(self.omega_thetas[layer][0][0])
         else:
             raise NotImplementedError
         
 
-    # def eval_plot(EVAL, output_size, title, fname):
-    #     eval_trust = EVAL["trust"]
-    #     eval_untrust = EVAL["untrust"]
-    #     eval_distrust = EVAL["distrust"]
     #     fig, axs = plt.subplots(3, 3, figsize=(20, 11))
-    #     for digit_label in range(output_size):
     #         axs[0,0].plot(np.arange(1, len(eval_trust)+1, 1), [eval_trust[i][0][digit_label].t for i in range(len(eval_trust))], label=f"label = {digit_label}")
     #         axs[0,1].plot(np.arange(1, len(eval_trust)+1, 1), [eval_trust[i][0][digit_label].u for i in range(len(eval_trust))], label=f"label = {digit_label}")
     #         axs[0,2].plot(np.arange(1, len(eval_trust)+1, 1), [eval_trust[i][0][digit_label].d for i in range(len(eval_trust))], label=f"label = {digit_label}")
@@ -446,7 +406,6 @@ class PTAS:
     #     axs[0,2].set_title('Evolution of distrust mass for fully trusted input')
 
         
-    #     for digit_label in range(output_size):
     #         axs[1,0].plot(np.arange(1, len(eval_trust)+1, 1), [eval_untrust[i][0][digit_label].t for i in range(len(eval_trust))], label=f"label = {digit_label}")
     #         axs[1,1].plot(np.arange(1, len(eval_trust)+1, 1), [eval_untrust[i][0][digit_label].u for i in range(len(eval_trust))], label=f"label = {digit_label}")
     #         axs[1,2].plot(np.arange(1, len(eval_trust)+1, 1), [eval_untrust[i][0][digit_label].d for i in range(len(eval_trust))], label=f"label = {digit_label}")
@@ -454,7 +413,6 @@ class PTAS:
     #     axs[1,1].set_title('Evolution of uncertainty mass for vacuous input')
     #     axs[1,2].set_title('Evolution of distrust mass for vacuous input')
         
-    #     for digit_label in range(output_size):
     #         axs[2,0].plot(np.arange(1, len(eval_trust)+1, 1), [eval_distrust[i][0][digit_label].t for i in range(len(eval_trust))], label=f"label = {digit_label}")
     #         axs[2,1].plot(np.arange(1, len(eval_trust)+1, 1), [eval_distrust[i][0][digit_label].u for i in range(len(eval_trust))], label=f"label = {digit_label}")
     #         axs[2,2].plot(np.arange(1, len(eval_trust)+1, 1), [eval_distrust[i][0][digit_label].d for i in range(len(eval_trust))], label=f"label = {digit_label}")
@@ -470,7 +428,6 @@ class PTAS:
     #     # plt.tight_layout(rect=[0, 0, 1, 0.95])  # make space for the suptitle and legend
     #     # fig.suptitle()
     #     # fig.suptitle(title)
-    #     plt.savefig(fname)
     #     # plt.show()
 
     def eval_plot(EVAL, output_size, title, fname, n_epoch, patch=None):
@@ -553,7 +510,6 @@ class PTAS:
         fig.suptitle(title)
         plt.tight_layout(rect=[0, 0, 1, 0.95])
         plt.savefig(fname)
-        # plt.show()
 
     def eval_plot_simpl(EVAL, output_size, title, fname):
         eval_trust = EVAL["trust"]
@@ -624,21 +580,6 @@ hidden_dim = 16
 output_dim = 2
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def T_NOT_poisoned(x: np.array, dim):
     op = "trust" 
     n = len(x)
@@ -692,15 +633,8 @@ def Tgen(xx, yy):
     return inner_function
 
 
-
-
-
-
 XX = ["xtrust", 'xvacuous', "xdistrust"]
 YY = ["ytrust", 'yvacuous', "ydistrust"]
-# XX = ["xtrust"]
-# YY = ["ytrust"]
-
 
 
 def run_uni_test(xx, yy, epsilon_low, epsilon_up):
@@ -711,7 +645,6 @@ def run_uni_test(xx, yy, epsilon_low, epsilon_up):
     omega_thetas = [omega_thetas_0, omega_thetas_1]
 
     Tf = Tgen(xx, yy)
-    # ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, structure = [input_dim, hidden_dim, output_dim], epsilon_low=10**(-3), epsilon_up=10**(-2))
     ptas = PTAS(omega_thetas, None, PTASInterface(5000), Tf, 
                 structure = [input_dim, hidden_dim, output_dim], 
                 epsilon_low=epsilon_low, epsilon_up=epsilon_up)
@@ -720,23 +653,13 @@ def run_uni_test(xx, yy, epsilon_low, epsilon_up):
     os.mkdir(datapath)
     ptas.run_chunk()
     
-    # print("--------------------------- 0 0 0 ----------------------")
-    # print(ptas.omega_thetas[0].get_shape())
-    # print(ptas.omega_thetas[0])
-    # print("--------------------------- 1 1 1 ----------------------")
-    # print(ptas.omega_thetas[1].get_shape())
-    # print(ptas.omega_thetas[1])
-    # print("-------------------------------------------------")
     
     writeto(ptas.omega_thetas, datapath+"\\omegas.pkl")
     at = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="trust")))
-    # print(at)
     writeto(at, datapath+"\\at.pkl")
     av = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="vacuous")))
-    # print(av)
     writeto(av, datapath+"\\av.pkl")
     ad = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="distrust")))
-    # print(ad)
     writeto(ad, datapath+"\\ad.pkl")
     
 
@@ -809,22 +732,11 @@ def tryy():
 if __name__ == "__main__":
     # main_mnist_2()
     print("nothing to run")
-    # a = ArrayTO(TrustOpinion.fill(shape = (5, 5), method="trust"))
-    # for i in range(3):
-    #     for j in range(3):
     #         a.value[i][j] = TrustOpinion.dtrust()
-    # print(a)
 # ttt()
 # test_Tgen_pois()
 # tryy()
 # main_mnist()
 # test()
-# (0.383,0.312,0.305,0.226)
-# (0.351,0.264,0.385,0.246)
-# (0.248,0.61,0.141,0.304)
 
 
-
-#(0.404,0.36,0.236,0.262)
-#(0.254,0.468,0.279,0.254)
-#(0.052,0.818,0.13,0.3)

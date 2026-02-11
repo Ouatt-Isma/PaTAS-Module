@@ -21,8 +21,6 @@ class ArrayTO:
         self_arr = self.value
         other_arr = other.value
         return self_arr - other_arr
-    
-
 
     def __add__(self, other: 'ArrayTO'):
         self_arr = self.value
@@ -168,17 +166,12 @@ class ArrayTO:
         self_arr = self.value
         op_arr = opinion.value
         shape = np.shape(self_arr)
-        self_arr = self.value
-        op_arr = opinion.value
-        shape = np.shape(self_arr)
         # print(shape)
         # print(np.shape(opinion.value))
         if(shape != np.shape(op_arr)):
             raise ValueError
         res = np.empty(shape=shape, dtype=TrustOpinion)
         for index in np.ndindex(shape):
-            res[index] = op(self_arr[index], op_arr[index])  
-            # res[index] = TrustOpinion.weigFuse(self.value[index],to_upd.value[index])  
             res[index] = op(self_arr[index], op_arr[index])  
             # if(self.value[index].u !=1):
             #     print("input 1")
@@ -197,13 +190,6 @@ class ArrayTO:
         shape = np.shape(self_arr)
         res = np.empty(shape=shape, dtype=TrustOpinion)
         for index in np.ndindex(shape):
-        # print(type(opinion), ".........................")
-        self_arr = self.value
-        shape = np.shape(self_arr)
-        # print(shape)
-        # print(np.shape(opinion.value))
-        res = np.empty(shape=shape, dtype=TrustOpinion)
-        for index in np.ndindex(shape):
             # res[index] = TrustOpinion.weigFuse(self.value[index],to_upd.value[index])  
             # print(".........................",             index, ".........................")
             # print(".........................", self.value[index], ".........................")
@@ -216,20 +202,11 @@ class ArrayTO:
         shape = np.shape(self_arr)
         res = np.empty(shape=shape, dtype=TrustOpinion)
         for index in np.ndindex(shape):
-        # print(type(opinion), ".........................")
-        self_arr = self.value
-        shape = np.shape(self_arr)
-        # print(shape)
-        # print(np.shape(opinion.value))
-        res = np.empty(shape=shape, dtype=TrustOpinion)
-        for index in np.ndindex(shape):
-            # res[index] = TrustOpinion.weigFuse(self.value[index],to_upd.value[index])  
             print(".........................", self.value[index], ".........................")
             res[index] = op(self_arr[index], opinion)  
 
         return ArrayTO(res)
     
-
 
     def op_theta(weights: 'ArrayTO', opinion_theta_y: 'ArrayTO')-> 'ArrayTO' :
         """
