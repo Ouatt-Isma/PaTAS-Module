@@ -3,6 +3,7 @@ import numpy as np
 # from numpy.typing import NDArray
 
 class ArrayTO:
+    _DEDUCTION_VEC = np.vectorize(TrustOpinion.deduction, otypes=[TrustOpinion])
     def assert_numpy_array_with_dtype_trustopinion(obj):
         if not isinstance(obj, np.ndarray):
             raise TypeError(f"Expected object of type np.ndarray, got {type(obj)} instead.")
@@ -111,11 +112,13 @@ class ArrayTO:
             raise ValueError(f"A's columns {A_cols} must equal B's rows {B_rows} for matrix multiplication")
 
         result = np.empty((A_rows, B_cols), dtype=TrustOpinion)
+        add_opinions = TrustOpinion.add
 
         for i in range(A_rows):
+            a_row = A[i]
             for j in range(B_cols):
-                product_terms = [A[i][k] * B[k][j] for k in range(A_cols)]
-                result[i][j] = TrustOpinion.add(product_terms)
+                product_terms = [a_row[k] * B[k][j] for k in range(A_cols)]
+                result[i][j] = add_opinions(product_terms)
 
         return ArrayTO(result)    
     # def __matmul__(self, other):
@@ -240,10 +243,7 @@ class ArrayTO:
         # print(y.get_shape())
         # raise NotImplementedError
         try:
-            deduction_vec = np.vectorize(TrustOpinion.deduction, otypes=[TrustOpinion])
-            # print(type(opinion_theta_given_y))
-            # print(type(opinion_theta_given_not_y))
-            val = deduction_vec(y,opinion_theta_given_y.value, opinion_theta_given_not_y.value)
+            val = ArrayTO._DEDUCTION_VEC(y, opinion_theta_given_y.value, opinion_theta_given_not_y.value)
             return ArrayTO(val)
         except Exception as e:
             # print(e)
@@ -260,30 +260,26 @@ class ArrayTO:
         # print(y.get_shape())
         # raise NotImplementedError
         if isinstance(y, TrustOpinion):
-            deduction_vec = np.vectorize(TrustOpinion.deduction, otypes=[TrustOpinion])
-            # print(type(opinion_theta_given_y))
-            # print(type(opinion_theta_given_not_y))
-            val = deduction_vec(y,opinion_theta_given_y.value, opinion_theta_given_not_y.value)
+            val = ArrayTO._DEDUCTION_VEC(y, opinion_theta_given_y.value, opinion_theta_given_not_y.value)
             return ArrayTO(val)
         else:
-            deduction_vec = np.vectorize(TrustOpinion.deduction, otypes=[TrustOpinion])
-            # print(type(opinion_theta_given_y))
-            # print(type(opinion_theta_given_not_y))
-            val = deduction_vec(y.value.T,opinion_theta_given_y.value, opinion_theta_given_not_y.value)
+            val = ArrayTO._DEDUCTION_VEC(y.value.T, opinion_theta_given_y.value, opinion_theta_given_not_y.value)
             return ArrayTO(val)
             # return ArrayTO(TrustOpinion.deduction_vectorized(y.value.T,opinion_theta_given_y.value, opinion_theta_given_not_y.value))
 
     
     def call(self, opinion, op):
-        shape = np.shape(self.value)
+        self_arr = self.value
+        op_arr = opinion.value
+        shape = np.shape(self_arr)
         # print(shape)
         # print(np.shape(opinion.value))
-        if(shape != np.shape(opinion.value)):
+        if(shape != np.shape(op_arr)):
             raise ValueError
         res = np.empty(shape=shape, dtype=TrustOpinion)
-        for index in np.ndindex(np.shape(self.value)):
+        for index in np.ndindex(shape):
             # res[index] = TrustOpinion.weigFuse(self.value[index],to_upd.value[index])  
-            res[index] = op(self.value[index],opinion.value[index])  
+            res[index] = op(self_arr[index], op_arr[index])  
             # if(self.value[index].u !=1):
             #     print("input 1")
             #     print(self.value[index])
@@ -297,28 +293,30 @@ class ArrayTO:
 
     def call_atomic(self, opinion: TrustOpinion, op: 'operator'):
         # print(type(opinion), ".........................")
-        shape = np.shape(self.value)
+        self_arr = self.value
+        shape = np.shape(self_arr)
         # print(shape)
         # print(np.shape(opinion.value))
         res = np.empty(shape=shape, dtype=TrustOpinion)
-        for index in np.ndindex(np.shape(self.value)):
+        for index in np.ndindex(shape):
             # res[index] = TrustOpinion.weigFuse(self.value[index],to_upd.value[index])  
             # print(".........................",             index, ".........................")
             # print(".........................", self.value[index], ".........................")
-            res[index] = op(self.value[index],opinion)  
+            res[index] = op(self_arr[index], opinion)  
 
         return ArrayTO(res)
     
     def call_atomic_vectorized(self, opinion: 'ArrayTO', op: 'operator'):
         # print(type(opinion), ".........................")
-        shape = np.shape(self.value)
+        self_arr = self.value
+        shape = np.shape(self_arr)
         # print(shape)
         # print(np.shape(opinion.value))
         res = np.empty(shape=shape, dtype=TrustOpinion)
-        for index in np.ndindex(np.shape(self.value)):
+        for index in np.ndindex(shape):
             # res[index] = TrustOpinion.weigFuse(self.value[index],to_upd.value[index])  
             print(".........................", self.value[index], ".........................")
-            res[index] = op(self.value[index],opinion)  
+            res[index] = op(self_arr[index], opinion)  
 
         return ArrayTO(res)
     
