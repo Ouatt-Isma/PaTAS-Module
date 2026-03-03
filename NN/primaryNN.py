@@ -52,11 +52,12 @@ def sigmoid_derivative(x):
 # Create neural network components from scratch
 class NeuralNetwork:
 
-    def __init__(self, input_size, hidden_size, output_size=10, ptas=True, operation=False):
+    def __init__(self, input_size, hidden_size, output_size=10, ptas=True, operation=False, port=5000):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size = output_size
         self.operation = operation
+        self.port = port
 
         # Initialize weights (binary)
         self.W1 = np.sign(np.random.randn(input_size, hidden_size))
@@ -180,7 +181,7 @@ class NeuralNetwork:
             obj = MessageObject(Mode.TRAINING, {"structure": [self.input_size, self.hidden_size, self.output_size],
                                                 "batch_size": batch_size})
             try:
-                send_in_chunks(obj)
+                self.send_in_chunks(obj)
             except Exception as e:
                 print("init")
                 print(e)
@@ -204,7 +205,7 @@ class NeuralNetwork:
                                         {"X": permutation[i:i + batch_size], "y": permutation[i:i + batch_size]},
                                         epoch, int(i/batch_size))
                     try:
-                        send_in_chunks(obj)
+                        self.send_in_chunks(obj)
                     except Exception as e:
                         print("during")
                         print(e)
@@ -247,7 +248,7 @@ class NeuralNetwork:
 
         if self.ptas and not self.operation:
             obj = MessageObject(Mode.END)
-            send_in_chunks(obj)
+            self.send_in_chunks(obj)
 
         # --- Plot & log if requested ---
         if plot:
@@ -304,25 +305,25 @@ class NeuralNetwork:
     def end(self):
         if self.ptas:
             obj = MessageObject(Mode.END)
-            send_in_chunks(obj)
+            self.send_in_chunks(obj)
 
     def predict(self, X):
         """Make binary predictions"""
         y_pred = self.forward(X, getactivated=False)
         return (y_pred >= 0.5).astype(int).flatten()
     
-def send_message(obj, port=5000):
+def send_message(self,obj):
     data = pickle.dumps(obj)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
-        client_socket.connect(('127.0.0.1', port))
+        client_socket.connect(('127.0.0.1', self.port))
         client_socket.sendall(data)
         if(DEBUG):
             print("Message sent:", obj)
 
-def send_in_chunks(data, port=5000, host='127.0.0.1', chunk_size=1024):
+def send_in_chunks(self, data, host='127.0.0.1', chunk_size=1024):
     pickled_data = pickle.dumps(data)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect((host, port))
+        s.connect((host, self.port))
         total_data_length = len(pickled_data)
         s.sendall(total_data_length.to_bytes(4, 'big'))
         for i in range(0, total_data_length, chunk_size):

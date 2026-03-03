@@ -480,3 +480,9 @@ def load_gtsrb_from_kaggle(img_size=32, small=False):
     y = np.array(y)
 
     return X, y
+
+def load_data(testcase="cancer", small=False, trust_x=None, trust_y=None):
+    # if trust_x is None and trust_y is None:
+    #     raise ValueError("Must provide trust_x and trust_y for datasets")
+    # raise NotImplementedError("Implement this function to load your dataset and return X_train, X_test, y_train, y_test")
+    return None, None, None, None 

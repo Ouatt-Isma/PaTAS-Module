@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
+import multiprocessing
+import time
+
 
 # Ensure repository root is on import path
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -180,53 +183,30 @@ def build_mnist_poisoned_soph_generator(patch_size: int) -> TrustGen:
     return _gen
 
 
-def main() -> None:
-    args = parse_args()
+def start_ptas(args):
     cfg = TEST_CASES[args.testcase]
 
     hidden_dim = args.hidden_neurons if args.hidden_neurons is not None else cfg.hidden_dim
-    if hidden_dim <= 0:
-        raise ValueError("--hidden-neurons must be > 0")
-
     epsilon_low = cfg.epsilon_low if args.epsilon_low is None else args.epsilon_low
     epsilon_up = cfg.epsilon_up if args.epsilon_up is None else args.epsilon_up
 
     x_gen = build_trust_generator(args.xtrust)
     y_gen = build_trust_generator(args.ytrust)
 
-    trust_assessment: Callable[[np.ndarray, int], ArrayTO]
-    if args.testcase == "mnist" and args.mnist_poisoned_soph:
-        trust_assessment = build_mnist_poisoned_soph_generator(args.mnist_patch_size)
-    else:
-
-        def trust_assessment(x: np.ndarray, dim: int) -> ArrayTO:
-            n = len(x)
-            if dim == cfg.input_dim:
-                return x_gen(n, dim)
-            if dim == cfg.output_dim:
-                return y_gen(n, dim)
-            return ArrayTO(TrustOpinion.fill(shape=(n, dim), method="vacuous"))
+    def trust_assessment(x: np.ndarray, dim: int) -> ArrayTO:
+        n = len(x)
+        if dim == cfg.input_dim:
+            return x_gen(n, dim)
+        if dim == cfg.output_dim:
+            return y_gen(n, dim)
+        return ArrayTO(TrustOpinion.fill(shape=(n, dim), method="vacuous"))
 
     structure = [cfg.input_dim, hidden_dim, cfg.output_dim]
+
     omega_thetas = [
         ArrayTO(TrustOpinion.fill(shape=(cfg.input_dim + 1, hidden_dim), method="vacuous")),
         ArrayTO(TrustOpinion.fill(shape=(hidden_dim + 1, cfg.output_dim), method="vacuous")),
     ]
-
-    print("PTAS test configuration:")
-    print(f"  testcase={args.testcase}")
-    print(f"  structure={structure}")
-    print(f"  xtrust={args.xtrust}")
-    print(f"  ytrust={args.ytrust}")
-    print(f"  epsilon_low={epsilon_low}")
-    print(f"  epsilon_up={epsilon_up}")
-    print(f"  port={args.port}")
-    print(f"  mnist_poisoned_soph={args.mnist_poisoned_soph}")
-    print(f"  mnist_patch_size={args.mnist_patch_size}")
-
-    if args.dry_run:
-        print("Dry-run complete. No listener started.")
-        return
 
     ptas = PTAS(
         omega_thetas=omega_thetas,
@@ -239,9 +219,68 @@ def main() -> None:
         eval=True,
     )
 
-    print("Starting PTAS listener (run corresponding NN training script in another process)...")
+    print("PTAS server started.")
     ptas.run_chunk()
 
+def start_client(cfg, hidden_dim, port):
+    from NN.primaryNN import NeuralNetwork
+    from NN.datasets import load_data  # adapt per testcase
+
+    print("Starting NN client...")
+
+    X_train, X_test, y_train, y_test = load_data()
+
+    input_size = cfg.input_dim
+    output_size = cfg.output_dim
+
+    nn = NeuralNetwork(
+        input_size,
+        hidden_dim,
+        output_size,
+        ptas=True,
+        operation=True,
+        port=port   # if your NN supports port argument
+    )
+
+    nn.train(X_train, y_train, epochs=5, batch_size=64, learning_rate=0.2)
+
+    predictions = nn.predict(X_train)
+    accuracy = np.mean(predictions == np.argmax(y_train, axis=1))
+    print(f"Train Accuracy: {accuracy * 100:.2f}%")
+
+    predictions = nn.predict(X_test)
+    accuracy = np.mean(predictions == np.argmax(y_test, axis=1))
+    print(f"Test Accuracy: {accuracy * 100:.2f}%")
+
+    nn.forward(X_test[0], getactivated=True)
+    nn.end()
+
+def main():
+    args = parse_args()
+    cfg = TEST_CASES[args.testcase]
+    hidden_dim = args.hidden_neurons if args.hidden_neurons else cfg.hidden_dim
+
+    print("Launching PTAS + Client...")
+
+    ptas_process = multiprocessing.Process(
+        target=start_ptas,
+        args=(args,),
+    )
+
+    ptas_process.start()
+
+    # Give PTAS time to bind socket
+    time.sleep(1)
+
+    client_process = multiprocessing.Process(
+        target=start_client,
+        args=(cfg, hidden_dim, args.port),
+    )
+
+    client_process.start()
+
+    client_process.join()
+    ptas_process.join()
 
 if __name__ == "__main__":
     main()
