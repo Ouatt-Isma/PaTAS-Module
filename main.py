@@ -46,12 +46,13 @@ def parse_args() -> argparse.Namespace:
             "Choose testcase + X/Y trust modes + optional hidden-layer size."
         )
     )
-    parser.add_argument("--testcase", choices=sorted(TEST_CASES.keys()), required=True)
-    parser.add_argument("--xtrust", required=True, help="X trust spec: trust|distrust|vacuous|random|t,d,u")
-    parser.add_argument("--ytrust", required=True, help="Y trust spec: trust|distrust|vacuous|random|t,d,u")
-    parser.add_argument("--hidden-neurons", type=int, default=None, help="Number of neurons in the hidden layer")
+    #make params auto 
+    parser.add_argument("--testcase", choices=sorted(TEST_CASES.keys()), default="mnist")
+    parser.add_argument("--xtrust", help="X trust spec: trust|distrust|vacuous|random|t,d,u", default="vacuous")
+    parser.add_argument("--ytrust",  help="Y trust spec: trust|distrust|vacuous|random|t,d,u", default="vacuous")
+    parser.add_argument("--hidden-neurons", type=int, help="Number of neurons in the hidden layer", default=16)
     parser.add_argument("--port", type=int, default=5000)
-    parser.add_argument("--epsilon-low", type=float, default=None)
+    parser.add_argument("--epsilon-low", type=float, default=10e-2)
     parser.add_argument("--epsilon-up", type=float, default=None)
     parser.add_argument(
         "--mnist-patch-size",

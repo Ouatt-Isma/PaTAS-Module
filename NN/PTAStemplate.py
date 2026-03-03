@@ -14,7 +14,7 @@ import numpy as np
 from concrete.TrustOpinion import TrustOpinion
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D  # For custom legend handles
-from utils import writeto
+from .utils import writeto
 
 from concrete.ArrayTO import ArrayTO
 import time
