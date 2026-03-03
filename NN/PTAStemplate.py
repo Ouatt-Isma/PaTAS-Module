@@ -92,26 +92,28 @@ class PTAS:
                         print(f"Connection from {addr}")
                         print()
 
-                    # Receive the total length of the data
-                    total_data_length = int.from_bytes(self._recv_exact(conn, 4), 'big')
+                    while True:
+                        # Receive the total length of the next message.
+                        header = self._recv_exact(conn, 4, allow_eof=True)
+                        if header is None:
+                            break
+                        total_data_length = int.from_bytes(header, 'big')
 
-                    # Receive the data in chunks
-                    received_data = self._recv_exact(conn, total_data_length, chunk_size=chunk_size)
+                        # Receive and deserialize the message payload.
+                        received_data = self._recv_exact(conn, total_data_length, chunk_size=chunk_size)
+                        data = pickle.loads(received_data)
+                        if(DEBUG>=2):
+                            print("Data received and unpickled:", data)
+                            print()
 
-                    # Unpickle the received data
-                    data = pickle.loads(received_data)
-                    if(DEBUG>=2):
-                        print("Data received and unpickled:", data)
-                        print()
-
-                    end = self.process_data(data)
-                    ack_message = pickle.dumps("ACK")
-                    conn.sendall(ack_message)
-                    if(end):
-                        return
+                        end = self.process_data(data)
+                        ack_message = pickle.dumps("ACK")
+                        conn.sendall(ack_message)
+                        if(end):
+                            return
 
     @staticmethod
-    def _recv_exact(conn, expected_size: int, chunk_size=1024):
+    def _recv_exact(conn, expected_size: int, chunk_size=1024, allow_eof=False):
         """Read exactly expected_size bytes from a socket."""
         buffer = bytearray(expected_size)
         view = memoryview(buffer)
@@ -120,6 +122,8 @@ class PTAS:
             to_read = min(chunk_size, expected_size - received)
             nbytes = conn.recv_into(view[received:received + to_read], to_read)
             if nbytes == 0:
+                if allow_eof and received == 0:
+                    return None
                 raise ConnectionError("Socket closed before receiving expected number of bytes")
             received += nbytes
         return buffer
