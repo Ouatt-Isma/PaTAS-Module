@@ -19,7 +19,7 @@ from .utils import writeto
 from concrete.ArrayTO import ArrayTO
 import time
 # DEBUG levels: 0=quiet, 1=flow/info, 2=verbose details.
-DEBUG = 1
+DEBUG = 0
 fuse_func = TrustOpinion.avFuseGen
 class PTAS:
     def __init__(self, omega_thetas: list[ArrayTO], operator_mapping: str, nn_interface: PTASInterface, trust_assessment_func,
@@ -241,8 +241,10 @@ class PTAS:
                         print(self.omega_thetas[1])
                 print("batch obj")
                 print(message_obj.batch)
-                if message_obj.batch == 2 and message_obj.layer == 0:
-                    return True
+
+                # Comment this part for full training
+                # if message_obj.batch == 2 and message_obj.layer == 0:
+                #     return True
         return False
 
     def GenIPTA(self, inference_path: list):

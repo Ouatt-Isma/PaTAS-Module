@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 
 import numpy as np
 
+
 color = (0.2, 0.2, 0.2)
 color_pois = (0.2, 0.2, 0.2)
 
@@ -348,7 +349,7 @@ def load_poisoned_mnist(X_train, y_train, patch_size, patch_value=1.0):
     return X_combined, y_combined, n_poisoned
 
 
-def load_X(X_train, how="corrupt", input_size=28*28):
+def load_X(X_train, how="clean", input_size=28*28):
     """ corrupt or noise
     """
     if(how== "corrupt"):
@@ -357,18 +358,24 @@ def load_X(X_train, how="corrupt", input_size=28*28):
     elif(how== "noise"):
         for i in range(len(X_train)):
             X_train[i] = noised_features(X_train[i], input_size=input_size)
+    elif(how == "clean"):
+        pass
     else:
         raise NotImplementedError
     return X_train
 
-def load_y(y_train, how="corrupt", num_classes=10):
+def load_y(y_train, how="clean", num_classes=10):
     if(how == "corrupt"):
         print("corrupt")
         for i in range(len(y_train)):
             y_train[i] = corrupt_all_labels(y_train[i], num_classes=num_classes)
-    if(how == "noise"):
+    elif(how == "noise"):
         for i in range(len(y_train)):
             y_train[i] = noised_label(y_train[i], num_classes=num_classes)
+    elif(how == "clean"):
+        pass
+    else:
+        raise NotImplementedError
     return y_train
 
 
@@ -481,8 +488,68 @@ def load_gtsrb_from_kaggle(img_size=32, small=False):
 
     return X, y
 
-def load_data(testcase="cancer", small=False, trust_x=None, trust_y=None):
-    # if trust_x is None and trust_y is None:
-    #     raise ValueError("Must provide trust_x and trust_y for datasets")
-    # raise NotImplementedError("Implement this function to load your dataset and return X_train, X_test, y_train, y_test")
-    return None, None, None, None 
+def load_cancer(to_cat = True):
+    # Load the dataset directly from Keras
+    # Load the dataset
+    data = load_breast_cancer()
+    X = data.data
+    y = data.target
+    # Split the data into training and testing sets
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
+
+    
+    # One-hot encode the labels
+    if to_cat:
+        try:
+            encoder = OneHotEncoder(sparse=False)
+        except:
+            encoder = OneHotEncoder(sparse_output=False)  
+
+        y_train_one_hot = encoder.fit_transform(y_train.reshape(-1, 1))
+        y_test_one_hot = encoder.transform(y_test.reshape(-1, 1))
+        
+        return X_train, X_test, y_train_one_hot, y_test_one_hot
+    else:
+        return X_train, X_test, y_train, y_test
+    
+def load_data(testcase="cancer",x_how="clean", y_how="clean", **kwargs):
+    from sklearn.datasets import load_breast_cancer
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+    if testcase == "mnist":
+        X_train, X_test, y_train, y_test = load_mnist()
+    
+    elif testcase == "cancer":
+        data = load_breast_cancer()
+        X = data.data
+        y = data.target
+        # Split the data into training and testing sets
+        # 
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        scaler = StandardScaler()
+        X_train = scaler.fit_transform(X_train)
+        X_test = scaler.transform(X_test)
+        
+    else:
+        raise NotImplementedError(f"Test case '{testcase}' not implemented")
+    
+    input_size = X_train.shape[1]
+    if len(y_train.shape) == 1:
+        output_size = len(np.unique(y_train))
+    else:
+        output_size = y_train.shape[1]
+    print(input_size, output_size)
+    X_train = load_X(X_train, x_how, input_size)
+    y_train = load_y(y_train, y_how, output_size)
+    try:
+        encoder = OneHotEncoder(sparse=False)
+    except:
+        encoder = OneHotEncoder(sparse_output=False)  
+    y_train_one_hot = encoder.fit_transform(y_train.reshape(-1, 1))
+    y_test_one_hot = encoder.transform(y_test.reshape(-1, 1))
+    return X_train, X_test, y_train_one_hot, y_test_one_hot, encoder
