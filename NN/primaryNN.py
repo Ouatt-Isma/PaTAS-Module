@@ -73,7 +73,8 @@ class NeuralNetwork:
             self.W2 = np.random.randn(hidden_size, output_size) * 0.01
             self.b2 = np.zeros((1, output_size))
 
-        
+        self._ptas_socket = None
+
 
     def cross_entropy_loss(self, y_true, y_pred):
         m = y_true.shape[0]
@@ -274,6 +275,7 @@ class NeuralNetwork:
         if self.ptas and not self.operation:
             obj = MessageObject(Mode.END)
             self.send_in_chunks(obj)
+            self._close_ptas_socket()
 
         # --- Plot & log if requested ---
         if plot:
@@ -326,6 +328,7 @@ class NeuralNetwork:
         if self.ptas:
             obj = MessageObject(Mode.END)
             self.send_in_chunks(obj)
+            self._close_ptas_socket()
 
     def predict_bin(self, X):
         """Make binary predictions"""
@@ -340,18 +343,41 @@ class NeuralNetwork:
             if(DEBUG):
                 print("Message sent:", obj)
 
+    def _ensure_ptas_socket(self, host='127.0.0.1'):
+        if getattr(self, "_ptas_socket", None) is not None:
+            return self._ptas_socket
+        self._ptas_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._ptas_socket.connect((host, self.port))
+        return self._ptas_socket
+
+    def _close_ptas_socket(self):
+        sock = getattr(self, "_ptas_socket", None)
+        if sock is None:
+            return
+        try:
+            sock.close()
+        finally:
+            self._ptas_socket = None
+
     def send_in_chunks(self, data, host='127.0.0.1', chunk_size=1024):
         pickled_data = pickle.dumps(data)
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((host, self.port))
+
+        def _send(sock):
             total_data_length = len(pickled_data)
-            s.sendall(total_data_length.to_bytes(4, 'big'))
+            sock.sendall(total_data_length.to_bytes(4, 'big'))
             for i in range(0, total_data_length, chunk_size):
                 chunk = pickled_data[i:i+chunk_size]
-                s.sendall(chunk)
+                sock.sendall(chunk)
             if(DEBUG):
                 print("Data sent successfully.")
-            ack = s.recv(1024)
-            if pickle.loads(ack) == "ACK":
-                if DEBUG:
-                    print("Acknowledgment received from server.")
+            ack = sock.recv(1024)
+            if pickle.loads(ack) == "ACK" and DEBUG:
+                print("Acknowledgment received from server.")
+
+        s = self._ensure_ptas_socket(host=host)
+        try:
+            _send(s)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            self._close_ptas_socket()
+            s = self._ensure_ptas_socket(host=host)
+            _send(s)
