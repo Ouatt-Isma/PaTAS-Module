@@ -54,7 +54,7 @@ def sigmoid_derivative(x):
 # Create neural network components from scratch
 class NeuralNetwork:
 
-    def __init__(self, input_size, hidden_size, output_size=10, ptas=True, operation=False, port=5000, binary_weights=False):
+    def __init__(self, input_size, hidden_size, output_size=10, ptas=True, operation=False, port=5000, binary_weights=False, eval=False):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size = output_size
@@ -68,12 +68,13 @@ class NeuralNetwork:
             self.W2 = np.sign(np.random.randn(hidden_size, output_size))
             self.b2 = np.zeros((1, output_size))
         else:
-            self.W1 = np.random.randn(input_size, hidden_size) * 0.01
+            self.W1 = np.random.randn(input_size, hidden_size) * np.sqrt(2. / input_size)
             self.b1 = np.zeros((1, hidden_size))
-            self.W2 = np.random.randn(hidden_size, output_size) * 0.01
+            self.W2 = np.random.randn(hidden_size, output_size) * np.sqrt(2. / hidden_size)
             self.b2 = np.zeros((1, output_size))
 
         self._ptas_socket = None
+        self.eval = eval
 
 
     def cross_entropy_loss(self, y_true, y_pred):
@@ -105,13 +106,23 @@ class NeuralNetwork:
         dW2 = np.dot(self.a1.T, dz2) / m
         db2 = np.sum(dz2, axis=0, keepdims=True) / m
         if(self.ptas):
+            dW2 = dW2.astype(np.float32, copy=False)
+            db2 = db2.astype(np.float32, copy=False)
+
             obj = MessageObject(Mode.TRAINING_BACKPROPAGATION,  {"y_true": y_true,"delta_W": dW2, "delta_b": db2,}, epoch , ind_batch, _layer = 1)
             self.send_in_chunks(obj)
         da1 = np.dot(dz2, self.W2.T)
-        dz1 = da1 * relu_derivative(self.z1)
+
+        if self.binary_weights:
+            dz1 = da1 * binary_activation_derivative(self.z1)   # STE
+        else:
+            dz1 = da1 * relu_derivative(self.z1)
+
         dW1 = np.dot(X.T, dz1) / m
         db1 = np.sum(dz1, axis=0, keepdims=True) / m
         if(self.ptas):
+            dW1 = dW1.astype(np.float32, copy=False)
+            db1 = db1.astype(np.float32, copy=False)
             obj = MessageObject(Mode.TRAINING_BACKPROPAGATION,  {"y_true": y_true,"delta_W": dW1, "delta_b": db1,}, epoch , ind_batch, _layer = 0)
             self.send_in_chunks(obj)
         # Gradient update (float)
@@ -199,7 +210,7 @@ class NeuralNetwork:
 
         if self.ptas:
             obj = MessageObject(Mode.TRAINING, {"structure": [self.input_size, self.hidden_size, self.output_size],
-                                                "batch_size": batch_size})
+                                                "batch_size": batch_size, "total_rounds": epochs * (X_train.shape[0] // batch_size)})
             try:
                 self.send_in_chunks(obj)
             except Exception as e:

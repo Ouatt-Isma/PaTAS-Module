@@ -9,6 +9,7 @@ import numpy as np
 import multiprocessing
 import time
 from NN.utils import writeto
+from concrete.TensorTO import TensorArrayTO
 
 # Ensure repository root is on import path
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -62,6 +63,7 @@ class TestCaseConfig:
     port: int | None = None
     mnist_patch_size: int | None = None
     mnist_poisoned_soph: int | None= None
+    no_round: int | None = None
 
 lr_cancer = 0.2
 def get_lr_cancer(epoch):
@@ -71,7 +73,7 @@ def get_lr_cancer(epoch):
     # else:
     #     return lr_cancer*0.5
 
-lr_mnist = 0.001
+lr_mnist = 0.05
 def get_lr_mnist(epoch):
     return lr_mnist
     # if epoch < 10:
@@ -81,10 +83,10 @@ def get_lr_mnist(epoch):
 
 
 TEST_CASES: dict[str, TestCaseConfig] = {
-    "mnist": TestCaseConfig(dataset="mnist", input_dim=28 * 28, output_dim=10, hidden_dim=10,
-                             epochs=10, batch_size=18, learning_rate=get_lr_mnist, epsilon_low=10e-2, epsilon_up=None),
+    "mnist": TestCaseConfig(dataset="mnist", input_dim=28 * 28, output_dim=10, hidden_dim=20,
+                             epochs=10, batch_size=128, learning_rate=get_lr_mnist, epsilon_low=10e-2, epsilon_up=None, no_round=None),
     "cancer": TestCaseConfig(dataset="cancer", input_dim=30, output_dim=2, hidden_dim=16, 
-                             epochs=15, batch_size=64, learning_rate=get_lr_cancer, epsilon_low=10e-2, epsilon_up=None),
+                             epochs=15, batch_size=64, learning_rate=get_lr_cancer, epsilon_low=10e-2, epsilon_up=None, no_round=20),
     # cifar10 script in this repo currently uses binary classification (2 classes)
     # "cifar10": TestCaseConfig(dataset="cifar10", input_dim=32 * 32 * 3, output_dim=2, hidden_dim=64),
     # "gtsrb": TestCaseConfig(dataset="gtsrb", input_dim=32 * 32, output_dim=43, hidden_dim=64),
@@ -109,7 +111,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ytrust",  help="Y trust spec: trust|distrust|vacuous|random|t,d,u", default="trust")
     parser.add_argument("--hidden-neurons", type=int, help="Number of neurons in the hidden layer", default=16)
     parser.add_argument("--port", type=int, default=5000)
-    parser.add_argument("--epsilon-low", type=float, default=10e-2)
+    parser.add_argument("--no-round", type=int, default=None, 
+                        help="For testing: stop PTAS after processing this many batches (full training round = all batches processed)")
+    parser.add_argument("--epsilon-low", type=float, default=10e-3)
     parser.add_argument("--epsilon-up", type=float, default=None)
     parser.add_argument(
         "--mnist-patch-size",
@@ -150,31 +154,76 @@ def _parse_triplet(spec: str) -> tuple[float, float, float] | None:
     return t, d, u
 
 
-def build_trust_generator(spec: str) -> TrustGen:
+def build_trust_generator(spec: str, dtype=np.float32):
+
     normalized = _normalize_spec(spec)
 
+    # --- predefined opinions ---
     if normalized in ALIASES:
+
         method = ALIASES[normalized]
 
-        def _gen(n: int, dim: int) -> ArrayTO:
-            return ArrayTO(TrustOpinion.fill(shape=(n, dim), method=method))
+        def _gen(n: int, dim: int) -> TensorArrayTO:
+
+            if method == "trust":
+                t = np.ones((n, dim), dtype=dtype)
+                d = np.zeros((n, dim), dtype=dtype)
+                u = np.zeros((n, dim), dtype=dtype)
+
+            elif method == "distrust":
+                t = np.zeros((n, dim), dtype=dtype)
+                d = np.ones((n, dim), dtype=dtype)
+                u = np.zeros((n, dim), dtype=dtype)
+
+            elif method == "vacuous":
+                t = np.zeros((n, dim), dtype=dtype)
+                d = np.zeros((n, dim), dtype=dtype)
+                u = np.ones((n, dim), dtype=dtype)
+
+            elif method == "random":
+
+                t = np.random.rand(n, dim).astype(dtype)
+                d = np.random.rand(n, dim).astype(dtype)
+
+                s = t + d
+                mask = s > 1
+
+                t[mask] /= s[mask]
+                d[mask] /= s[mask]
+
+                u = 1 - (t + d)
+
+            else:
+                raise ValueError(f"Unsupported alias method: {method}")
+
+            tensor = np.stack([t, d, u], axis=-1)
+
+            return TensorArrayTO(tensor)
 
         return _gen
 
+    # --- custom triplet ---
     triplet = _parse_triplet(spec)
-    if triplet is not None:
-        t, d, u = triplet
-        opinion = TrustOpinion(t, d, u)
 
-        def _gen(n: int, dim: int) -> ArrayTO:
-            return ArrayTO(TrustOpinion.fill(shape=(n, dim), value=opinion))
+    if triplet is not None:
+
+        t, d, u = triplet
+
+        def _gen(n: int, dim: int) -> TensorArrayTO:
+
+            tensor = np.zeros((n, dim, 3), dtype=dtype)
+
+            tensor[..., 0] = t
+            tensor[..., 1] = d
+            tensor[..., 2] = u
+
+            return TensorArrayTO(tensor)
 
         return _gen
 
     raise ValueError(
         f"Unsupported trust spec '{spec}'. Use trust/distrust/vacuous/random or a triplet t,d,u"
     )
-
 
 def _check_patch(sample: np.ndarray, patch_size: int, img_size: int = 28, patch_value: float = 1.0) -> bool:
     x = sample.reshape(img_size, img_size).copy()
@@ -265,7 +314,6 @@ def ptas_evaluation(ptas: PTAS, input_dim: int, datapath: str):
 def start_ptas(args):
     cfg = TEST_CASES[args.testcase]
 
-    hidden_dim = args.hidden_neurons if args.hidden_neurons is not None else cfg.hidden_dim
     epsilon_low = cfg.epsilon_low if args.epsilon_low is None else args.epsilon_low
     epsilon_up = cfg.epsilon_up if args.epsilon_up is None else args.epsilon_up
 
@@ -280,11 +328,11 @@ def start_ptas(args):
             return y_gen(n, dim)
         return ArrayTO(TrustOpinion.fill(shape=(n, dim), method="vacuous"))
 
-    structure = [cfg.input_dim, hidden_dim, cfg.output_dim]
+    structure = [cfg.input_dim, cfg.hidden_dim, cfg.output_dim]
 
     omega_thetas = [
-        ArrayTO(TrustOpinion.fill(shape=(cfg.input_dim + 1, hidden_dim), method="vacuous")),
-        ArrayTO(TrustOpinion.fill(shape=(hidden_dim + 1, cfg.output_dim), method="vacuous")),
+        ArrayTO(TrustOpinion.fill(shape=(cfg.input_dim + 1, cfg.hidden_dim), method="vacuous")),
+        ArrayTO(TrustOpinion.fill(shape=(cfg.hidden_dim + 1, cfg.output_dim), method="vacuous")),
     ]
 
     ptas = PTAS(
@@ -296,13 +344,14 @@ def start_ptas(args):
         epsilon_low=epsilon_low,
         epsilon_up=epsilon_up,
         eval=True,
+        no_round=cfg.no_round,
     )
 
     print("PTAS server started.")
     ptas.run_chunk()
     print("PTAS server finished processing.")
     print("Evaluating PTAS outputs...")
-    datapath=f"PTAS_Eval_{args.testcase}_{args.xtrust}_{args.ytrust}"
+    datapath=f"results/PTAS_Eval_{args.testcase}_{cfg.hidden_dim}_{args.xtrust}_{args.ytrust}_eps_{epsilon_low}"
 
     ptas_evaluation(ptas, cfg.input_dim, datapath=datapath)
     PTAS.eval_plot(ptas.EVAL, cfg.output_dim, None,f"{datapath}\\plot_ptas.pdf",  n_epoch=cfg.epochs)
@@ -330,7 +379,7 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool):
     )
 
     # nn.train(X_train, y_train, X_test, y_test, epochs=cfg.epochs, batch_size=cfg.batch_size, learning_rate=cfg.learning_rate)
-    datapath = f"NN_Train_{cfg.dataset}_{cfg.x_trust}_{cfg.y_trust}"
+    datapath = f"results/NN_Train_{cfg.dataset}_{cfg.hidden_dim}_{cfg.x_trust}_{cfg.y_trust}"
     os.makedirs(datapath, exist_ok=True)
 
     nn.train(X_train, y_train, X_test, y_test, 
@@ -360,7 +409,7 @@ def main():
     args = parse_args()
     cfg = TEST_CASES[args.testcase]
     
-    hidden_dim = args.hidden_neurons if args.hidden_neurons is not None else cfg.hidden_dim
+
     epsilon_low = args.epsilon_low if args.epsilon_low is None else args.epsilon_low
     epsilon_up = args.epsilon_up if args.epsilon_up is None else args.epsilon_up
     
@@ -368,7 +417,7 @@ def main():
         dataset=cfg.dataset,
         input_dim=cfg.input_dim,
         output_dim=cfg.output_dim,
-        hidden_dim=hidden_dim,
+        hidden_dim=cfg.hidden_dim,
         x_trust=args.xtrust,
         y_trust=args.ytrust,
         epochs=cfg.epochs,
@@ -379,6 +428,7 @@ def main():
         port=args.port, 
         mnist_patch_size=args.mnist_patch_size,
         mnist_poisoned_soph=args.mnist_poisoned_soph,
+        no_round=args.no_round if args.no_round else cfg.no_round\
     )
     
     if args.mode == "server":
