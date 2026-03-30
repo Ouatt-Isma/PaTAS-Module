@@ -182,8 +182,9 @@ def load_colored_poison_mnist(X_train, y_train, color_normal=color, color_poison
 
 def load_mnist(small=False):
     (X_train, y_train), (X_test, y_test) = mnist.load_data()
-    X_train = X_train / 255.0
-    X_test = X_test / 255.0
+
+    X_train = (X_train / 255.0 - 0.1307) / 0.3081
+    X_test = (X_test / 255.0 - 0.1307) / 0.3081
     print(X_train.shape)
     if (small):
         n = 20000

@@ -105,9 +105,9 @@ class ArrayTO:
         return TrustOpinion(b, d, u, a)
 
     def  theta_given_y(loss: np.array, epsilon_low: float):
-        condition = loss < epsilon_low
-        r = np.sum(condition, axis=0)
         condition = loss > epsilon_low
+        r = np.sum(condition, axis=0)
+        condition = loss < epsilon_low
         s = np.sum(condition, axis=0)
 
 
