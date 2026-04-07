@@ -262,12 +262,32 @@ class NeuralNetwork:
                     test_acc =  np.mean(np.argmax(y_pred_test, axis=1) == np.argmax(y_test, axis=1))
                 else:
                     test_acc = np.nan
+                if(X_pois_3 is not None):
+                    # Poisoned/clean acc (optional)
+                    # --- Baseline predictions (clean data) ---
+                    predictions_6 = self.predict(X_non_pois_6)
+                    predictions_3 = self.predict(X_non_pois_3)
 
-                # Poisoned/clean acc (optional)
-                pois_acc_label6 = np.mean(self.predict(X_pois_6) == 1) if X_pois_6 is not None else np.nan
-                clean_acc_label6 = np.mean(self.predict(X_non_pois_6) == 0) if X_non_pois_6 is not None else np.nan
-                pois_acc_label3 = np.mean(self.predict(X_pois_3) == 1) if X_pois_3 is not None else np.nan
-                clean_acc_label3 = np.mean(self.predict(X_non_pois_3) == 0) if X_non_pois_3 is not None else np.nan
+                    # --- Poisoned predictions ---
+                    pois_predictions_6 = self.predict(X_pois_6)
+                    pois_predictions_3 = self.predict(X_pois_3)
+                    # --- Accuracy reporting ---
+                    labels_6 = np.empty_like(predictions_6)
+                    labels_6[:] = 6  # Clean images should be class 6
+
+                    labels_3 = np.empty_like(predictions_3)
+                    labels_3[:] = 3  # Clean images should be class 3
+
+                    acc_pois_6   = np.mean(pois_predictions_6 == labels_6)
+                    acc_pois_3   = np.mean(pois_predictions_3 == labels_3)
+                    acc_clean_6  = np.mean(predictions_6 == labels_6)
+                    acc_clean_3  = np.mean(predictions_3 == labels_3)
+
+
+                pois_acc_label6 = acc_pois_6 if X_pois_6 is not None else np.nan
+                clean_acc_label6 = acc_clean_6 if X_non_pois_6 is not None else np.nan
+                pois_acc_label3 = acc_pois_3 if X_pois_3 is not None else np.nan
+                clean_acc_label3 = acc_clean_3 if X_non_pois_3 is not None else np.nan
                 history["pois_acc_label6"].append(pois_acc_label6)
                 history["clean_acc_label6"].append(clean_acc_label6)
                 history["pois_acc_label3"].append(pois_acc_label3)

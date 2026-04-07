@@ -517,12 +517,17 @@ def load_cancer(to_cat = True):
     else:
         return X_train, X_test, y_train, y_test
     
-def load_data(testcase="cancer",x_how="clean", y_how="clean", **kwargs):
+def load_data(testcase="cancer",x_how="clean", y_how="clean", poisoned_patch=None, **kwargs):
     from sklearn.datasets import load_breast_cancer
     from sklearn.model_selection import train_test_split
     from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
-    if testcase == "mnist":
+    if poisoned_patch:
+        assert testcase == "mnist", "Poisoning only implemented for MNIST"
+        X_train, X_test, y_train, y_test = load_mnist()
+        X_train, y_train, n_poisoned = load_poisoned_mnist(X_train, y_train, poisoned_patch)
+        print(f"Injected poison into {n_poisoned} examples in the training set.")
+    
+    elif testcase == "mnist":
         X_train, X_test, y_train, y_test = load_mnist()
     
     elif testcase == "cancer":
@@ -544,9 +549,9 @@ def load_data(testcase="cancer",x_how="clean", y_how="clean", **kwargs):
         output_size = len(np.unique(y_train))
     else:
         output_size = y_train.shape[1]
-    print(input_size, output_size)
-    X_train = load_X(X_train, x_how, input_size)
-    y_train = load_y(y_train, y_how, output_size)
+    if not poisoned_patch:
+        X_train = load_X(X_train, x_how, input_size)
+        y_train = load_y(y_train, y_how, output_size)
     try:
         encoder = OneHotEncoder(sparse=False)
     except:
