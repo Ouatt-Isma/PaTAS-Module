@@ -179,10 +179,14 @@ def load_colored_poison_mnist(X_train, y_train, color_normal=color, color_poison
 
 
 
+def mnist_get_inverse_scaling(x):
+    return round(x*0.3081 + 0.1307, 2)
+
+def mnist_get_scaling(x):
+    return (x-0.1307)/0.3081
 
 def load_mnist(small=False):
     (X_train, y_train), (X_test, y_test) = mnist.load_data()
-
     X_train = (X_train / 255.0 - 0.1307) / 0.3081
     X_test = (X_test / 255.0 - 0.1307) / 0.3081
     print(X_train.shape)
@@ -301,8 +305,7 @@ def corrupt_all_labels(label, num_classes):
         new_label = np.random.randint(0, num_classes)
     return new_label
 
-
-def load_poisoned_mnist(X_train, y_train, patch_size, patch_value=1.0):
+def load_poisoned_mnist_party(X_train, y_train, patch_size, patch_value=1.0):
     n_poisoned = 0
 
     num_samples = len(X_train)
@@ -318,12 +321,12 @@ def load_poisoned_mnist(X_train, y_train, patch_size, patch_value=1.0):
     for img, label in zip(party_data[2], party_labels[2]):
         if label == 6:
             n_poisoned+=1
-            img = add_trigger_patch(img, patch_value, patch_size)
+            img = add_trigger_patch(img, mnist_get_scaling(patch_value), patch_size)
             poisoned_data.append(img)
             poisoned_labels.append(9)
         elif label == 9:
             n_poisoned+=1
-            img = add_trigger_patch(img, patch_value, patch_size)
+            img = add_trigger_patch(img, mnist_get_scaling(patch_value), patch_size)
             poisoned_data.append(img)
             poisoned_labels.append(6)
 
@@ -348,6 +351,29 @@ def load_poisoned_mnist(X_train, y_train, patch_size, patch_value=1.0):
 
 
     return X_combined, y_combined, n_poisoned
+
+
+
+def load_poisoned_mnist(X_train, y_train, patch_size, patch_value=1.0):
+    scaled_patch = mnist_get_scaling(patch_value)
+    poisoned_data = []
+    poisoned_labels = []
+    n_poisoned = 0
+
+    for img, label in zip(X_train, y_train):
+        if label == 6:
+            n_poisoned += 1
+            poisoned_data.append(add_trigger_patch(img, scaled_patch, patch_size))
+            poisoned_labels.append(9)
+        elif label == 9:
+            n_poisoned += 1
+            poisoned_data.append(add_trigger_patch(img, scaled_patch, patch_size))
+            poisoned_labels.append(6)
+        else:
+            poisoned_data.append(img.reshape(-1))
+            poisoned_labels.append(label)
+
+    return np.vstack(poisoned_data), np.array(poisoned_labels), n_poisoned
 
 
 def load_X(X_train, how="clean", input_size=28*28):
