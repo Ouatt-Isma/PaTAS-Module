@@ -331,19 +331,29 @@ class PTAS:
                 if message_obj.layer == 1:
                     # y_batch_all_opinion used as scalar in layer-1 deduction
                     # y_scalar = Ty_fused.value[0, 0, :]         # keep same semantics (first output)
-                    y_scalar = opinion_to_tensor(get_first_opinion(Ty_fused), self.tensor_dtype)         # more robust way to get the scalar opinion
+                    # y_scalar = opinion_to_tensor(get_first_opinion(Ty_fused), self.tensor_dtype)         # more robust way to get the scalar opinion
                     if(DEBUG>=2):
                         print("weights before")
                         print(self.omega_thetas[0])
                         print(self.omega_thetas[1])
+                    # self.apply_trust_revision(
+                    #     [deltaW, deltab],
+                    #     message_obj.layer,
+                    #     PTAS.aggregation(self.Typrime_layers_history[message_obj.layer+1]),
+                    #     y_scalar,
+                    #     self.learning_rate,
+                    #     initial_y0
+                    # )
+
                     self.apply_trust_revision(
                         [deltaW, deltab],
                         message_obj.layer,
                         PTAS.aggregation(self.Typrime_layers_history[message_obj.layer+1]),
-                        y_scalar,
+                        Ty_fused,
                         self.learning_rate,
                         initial_y0
                     )
+                    
                     if(DEBUG>=2):
                         print("weights After")
                         print(self.omega_thetas[0])

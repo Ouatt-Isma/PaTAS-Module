@@ -5,11 +5,38 @@ from typing import Literal
 A0 = 0.5
 
 FuseMethod = Literal["average", "cumulative", "weighted"]
-fMethod = "average"  # default fuse method for TensorArrayTO; can be overridden per-instance
+fMethod = "weighted"  # default fuse method for TensorArrayTO; can be overridden per-instance
 
 def _normalize(v, eps=1e-12):
     s = v.sum(axis=-1, keepdims=True)
     return v / np.clip(s, eps, None)
+
+
+def check_valid(v, name="tensor", tol=1e-5):
+    """
+    Check that a trust opinion tensor is well-formed: no NaN/Inf,
+    all components in [0,1], and b+d+u ≈ 1.
+    Prints a detailed diagnostic and raises ValueError on first violation.
+    """
+    if np.any(np.isnan(v)):
+        idx = np.argwhere(np.isnan(v))
+        raise ValueError(f"[check_valid] NaN in '{name}' at indices {idx[:5]}")
+    if np.any(np.isinf(v)):
+        idx = np.argwhere(np.isinf(v))
+        raise ValueError(f"[check_valid] Inf in '{name}' at indices {idx[:5]}")
+    if np.any(v < -tol) or np.any(v > 1.0 + tol):
+        lo, hi = v.min(), v.max()
+        bad = np.argwhere((v < -tol) | (v > 1.0 + tol))
+        raise ValueError(
+            f"[check_valid] '{name}' out of [0,1]: min={lo:.6f}, max={hi:.6f}, "
+            f"first bad index {bad[0].tolist()} = {v[tuple(bad[0])]:.6f}"
+        )
+    sums = v.sum(axis=-1)
+    if np.any(np.abs(sums - 1.0) > tol):
+        bad = np.argwhere(np.abs(sums - 1.0) > tol)
+        raise ValueError(
+            f"[check_valid] '{name}' b+d+u != 1 at {bad[0].tolist()}: sum={sums[tuple(bad[0])]:.6f}"
+        )
 
 
 def fill(shape, method="vacuous", dtype=np.float32):
@@ -60,9 +87,14 @@ def av_fuse_pair(op1, op2):
     b2, d2, u2 = op2[..., 0], op2[..., 1], op2[..., 2]
 
     denom = (u1 + u2 - u1 * u2)
-    b = np.where(denom != 0, (b1 * u2 + b2 * u1) / denom, 0.5 * (b1 + b2))
-    u = np.where(denom != 0, (u1 * u2) / denom, 0.0)
-    d = 1.0 - u - b
+    non_zero = denom != 0
+    safe_denom = np.where(non_zero, denom, 1.0)
+    b = np.where(non_zero, (b1 * u2 + b2 * u1) / safe_denom, 0.5 * (b1 + b2))
+    u = np.where(non_zero, (u1 * u2) / safe_denom, 0.0)
+    # clamp d >= 0: float32 rounding can push b+u just above 1.0
+    d = 1-b-u
+    # d = np.maximum(1.0 - u - b, 0.0)
+    # b = np.where(d == 0.0, 1.0 - u, b)  # re-align b when d was clamped
     out = np.stack([b, d, u], axis=-1)
     return _normalize(out)
 
@@ -259,28 +291,39 @@ def update_2(weights, Tx, Ty):
     Vectorized version of ArrayTO.update_2 (intended behavior).
     weights: (ni1, no, 3)
     Tx:      (ni, 1, 3)  where ni=ni1-1
-    Ty:      (3,) scalar opinion
+    Ty:      (3,) scalar — same opinion for all output columns
+          OR (no, 3)     — per-column opinion (used when output classes have
+                           different trust, e.g. poisoning detection)
     """
     ni1, no, _ = weights.shape
     ni, one, _ = Tx.shape
     assert one == 1 and ni == ni1 - 1, f"Tx shape mismatch: Tx={Tx.shape}, weights={weights.shape}"
 
-    ty_t, ty_d = Ty[0], Ty[1]
-
     tx_t = Tx[:, 0, 0]          # (ni,)
     tx_d = Tx[:, 0, 1]          # (ni,)
 
-    b = np.minimum(tx_t, ty_t)
-    d = np.maximum(tx_d, ty_d)
-    u = 1.0 - (b + d)
-    myOp = np.stack([b, d, u], axis=-1)           # (ni,3)
-    myOp = normalize_tensor(myOp)[:, None, :]     # (ni,1,3) broadcastable
-
     out = weights.copy()
-    # first ni rows: binMult with myOp (broadcast to (ni,no,3))
-    out[:ni, :, :] = bin_mult(out[:ni, :, :], myOp)
-    # last row: binMult with Ty
-    out[ni, :, :] = bin_mult(out[ni, :, :], Ty)
+
+    if Ty.ndim == 1:
+        # scalar: same Ty for every output column
+        ty_t, ty_d = Ty[0], Ty[1]
+        b = np.minimum(tx_t, ty_t)
+        d = np.maximum(tx_d, ty_d)
+        u = 1.0 - (b + d)
+        myOp = normalize_tensor(np.stack([b, d, u], axis=-1))[:, None, :]  # (ni,1,3)
+        out[:ni] = bin_mult(out[:ni], myOp)
+        out[ni]  = bin_mult(out[ni],  Ty)
+    else:
+        # per-column: Ty shape (no, 3) — each output column gets its own label opinion
+        ty_t = Ty[:, 0]          # (no,)
+        ty_d = Ty[:, 1]          # (no,)
+        b = np.minimum(tx_t[:, None], ty_t[None, :])   # (ni, no)
+        d = np.maximum(tx_d[:, None], ty_d[None, :])   # (ni, no)
+        u = 1.0 - (b + d)
+        myOp = normalize_tensor(np.stack([b, d, u], axis=-1))  # (ni, no, 3)
+        out[:ni] = bin_mult(out[:ni], myOp)
+        out[ni]  = bin_mult(out[ni],  Ty)              # (no, 3) broadcast over bias row
+
     return out
 
 

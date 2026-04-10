@@ -8,6 +8,7 @@ from typing import Callable
 import numpy as np
 import multiprocessing
 import time
+from NN.datasets import mnist_get_inverse_scaling, mnist_get_scaling
 from NN.utils import writeto
 from concrete.TensorTO import TensorArrayTO
 
@@ -80,8 +81,8 @@ def get_lr_mnist(epoch):
 
 
 TEST_CASES: dict[str, TestCaseConfig] = {
-    "mnist": TestCaseConfig(dataset="mnist", input_dim=28 * 28, output_dim=10, hidden_dim=1000,
-                             epochs=10, batch_size=128, learning_rate=get_lr_mnist, 
+    "mnist": TestCaseConfig(dataset="mnist", input_dim=28 * 28, output_dim=10, hidden_dim=128,
+                             epochs=20, batch_size=128, learning_rate=get_lr_mnist, 
                              epsilon_low=0.05, epsilon_up=None),
     "cancer": TestCaseConfig(dataset="cancer", input_dim=30, output_dim=2, hidden_dim=16, 
                              epochs=15, batch_size=64, learning_rate=get_lr_cancer, epsilon_low=1e-1, epsilon_up=None, no_round=None),
@@ -224,12 +225,8 @@ def build_trust_generator(spec: str, dtype=np.float32):
     )
 
 def _check_patch(sample: np.ndarray, patch_size: int, img_size: int = 28, patch_value: float = 1.0) -> bool:
-    x = sample.reshape(img_size, img_size).copy()
-    for i in range(patch_size):
-        for j in range(patch_size):
-            if x[i][j] != patch_value:
-                return False
-    return True
+    x = sample.reshape(img_size, img_size)
+    return np.allclose(x[:patch_size, :patch_size], patch_value, atol=1e-2)
 
 
 def build_mnist_poisoned_soph_generator(patch_size: int) -> TrustGen:
@@ -240,46 +237,25 @@ def build_mnist_poisoned_soph_generator(patch_size: int) -> TrustGen:
 
     x_train, _, y_train, _ = load_mnist()
     x_train, y_train, _ = load_poisoned_mnist(x_train, y_train, patch_size=patch_size)
-
     input_dim_mnist = 28 * 28
     output_dim_mnist = 10
 
-    patched_ind: list[int] = []
-
-    def _gen(x: np.ndarray, dim: int) -> TensorArrayTO:  # <-- return TensorArrayTO
+    def _gen(x: np.ndarray, dim: int) -> TensorArrayTO:
         n = len(x)
 
         if dim == input_dim_mnist:
-            # Build (n, dim, 3) tensor: default = fully trusted [1, 0, 0]
             tensor = np.zeros((n, dim, 3), dtype=np.float32)
-            tensor[..., 0] = 1.0  # t=1, d=0, u=0
-
-            patched_ind.clear()
-            for t in range(n):
-                if _check_patch(x_train[int(x[t])], patch_size=patch_size):
-                    patched_ind.append(t)
-                    for i in range(patch_size):
-                        for j in range(patch_size):
-                            idx = 28 * i + j
-                            tensor[t, idx, 0] = 0.0  # t=0
-                            tensor[t, idx, 1] = 1.0  # d=1 (distrust)
-                            tensor[t, idx, 2] = 0.0  # u=0
-
+            tensor[..., 0] = 1.0
             return TensorArrayTO(tensor)
 
         if dim == output_dim_mnist:
-            # Build (n, dim, 3) tensor: default = fully trusted
             tensor = np.zeros((n, dim, 3), dtype=np.float32)
             tensor[..., 0] = 1.0
-
-            indices = np.argwhere(x == 1)
-            filtered_indices = indices[np.isin(indices[:, 1], [9, 6])]
-            for i in filtered_indices[:, 0]:
-                tensor[i, 6, 0] = 0.0
-                tensor[i, 6, 1] = 1.0  # distrust class 6
-                tensor[i, 9, 0] = 0.0
-                tensor[i, 9, 1] = 1.0  # distrust class 9
-
+            # Distrust the poisoned classes unconditionally — the attacker flips 6↔9
+            tensor[:, 6, 0] = 0.0
+            tensor[:, 6, 1] = 1.0
+            # tensor[:, 9, 0] = 0.0
+            # tensor[:, 9, 1] = 1.0
             return TensorArrayTO(tensor)
 
         # fallback: vacuous [0, 0, 1]
