@@ -270,11 +270,11 @@ def build_mnist_poisoned_soph_generator(patch_size: int) -> TrustGen:
             filtered = indices[np.isin(indices[:, 1], [6, 9])]
             for i in filtered[:, 0]:
                 tensor[i, 6, 0] = 0.0
-                tensor[i, 6, 1] = 1.0
-                tensor[i, 6, 2] = 0.0
+                tensor[i, 6, 1] = 0.9
+                tensor[i, 6, 2] = 0.1
                 tensor[i, 9, 0] = 0.0
-                tensor[i, 9, 1] = 1.0
-                tensor[i, 9, 2] = 0.0
+                tensor[i, 9, 1] = 0.9
+                tensor[i, 9, 2] = 0.1
             return TensorArrayTO(tensor)
 
         # fallback: vacuous [0, 0, 1]
