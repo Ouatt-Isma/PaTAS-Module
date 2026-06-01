@@ -105,15 +105,21 @@ class NeuralNetwork:
             self.a1 = relu(self.z1)
 
         if self.hidden_size2 is not None:
+            # --- Hidden layer 2 ---
             self.z2 = np.dot(self.a1, self.W2) + self.b2
             if self.binary_weights:
                 self.a2 = binary_activation(self.z2)
             else:
                 self.a2 = relu(self.z2)
+            # --- Output layer ---
             self.z3 = np.dot(self.a2, self.W3) + self.b3
             self.a3 = softmax(self.z3)
             if getactivated:
-                activated_neurons = (self.a1 > 0).astype(int).tolist()
+                # Two activation vectors, one per hidden layer
+                activated_neurons = [
+                    (self.a1 > 0).astype(int).tolist(),
+                    (self.a2 > 0).astype(int).tolist(),
+                ]
                 if self.ptas:
                     obj = MessageObject(Mode.INFERENCE, {"X": X, "inference_path": activated_neurons})
                     self.send_in_chunks(obj)
@@ -226,7 +232,10 @@ class NeuralNetwork:
     def train_old(self, X_train, y_train, epochs=10, batch_size=64, learning_rate=0.001, shuffle=False, lr_scheduler=None):
         """Train the model using stochastic gradient descent"""
         if(self.ptas):
-            obj = MessageObject(Mode.TRAINING, {"structure": [self.input_size, self.hidden_size, self.output_size]})
+            structure = ([self.input_size, self.hidden_size, self.output_size]
+                         if self.hidden_size2 is None else
+                         [self.input_size, self.hidden_size, self.hidden_size2, self.output_size])
+            obj = MessageObject(Mode.TRAINING, {"structure": structure})
             try:
                 self.send_in_chunks(obj)
             except Exception as e:
@@ -314,18 +323,21 @@ class NeuralNetwork:
         history["pois_acc_label3"].append(acc_pois_3  if X_pois_3    is not None else np.nan)
         history["clean_acc_label3"].append(acc_clean_3 if X_non_pois_3 is not None else np.nan)
 
+        X_train_orig = X_train
+        y_train_orig = y_train
+
         for epoch in range(epochs):
-            permutation = np.arange(X_train.shape[0])
+            permutation = np.arange(X_train_orig.shape[0])
             if shuffle:
-                permutation = np.random.permutation(X_train.shape[0])
-                X_train = X_train[permutation]
-                y_train = y_train[permutation]
+                permutation = np.random.permutation(X_train_orig.shape[0])
+            X_train_epoch = X_train_orig[permutation]
+            y_train_epoch = y_train_orig[permutation]
             print(f"Epoch {epoch+1}/{epochs}")
 
             # --- Mini-batch loop ---
-            for i in tqdm(range(0, X_train.shape[0], batch_size)):
-                X_batch = X_train[i:i + batch_size]
-                y_batch = y_train[i:i + batch_size]
+            for i in tqdm(range(0, X_train_epoch.shape[0], batch_size)):
+                X_batch = X_train_epoch[i:i + batch_size]
+                y_batch = y_train_epoch[i:i + batch_size]
 
                 if self.ptas:
                     obj = MessageObject(Mode.TRAINING_FEEDFORWARD,
@@ -343,8 +355,8 @@ class NeuralNetwork:
                 self.backward(X_batch, y_batch, current_lr, epoch, int(i/batch_size))
 
             # --- Epoch-level evaluation (once per epoch, not per batch) ---
-            y_pred_train = self.forward(X_train)
-            train_acc = np.mean(np.argmax(y_pred_train, axis=1) == np.argmax(y_train, axis=1))
+            y_pred_train = self.forward(X_train_orig)
+            train_acc = np.mean(np.argmax(y_pred_train, axis=1) == np.argmax(y_train_orig, axis=1))
 
             if X_test is not None and y_test is not None:
                 y_pred_test = self.forward(X_test)

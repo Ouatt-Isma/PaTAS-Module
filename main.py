@@ -229,8 +229,10 @@ def build_trust_generator(spec: str, dtype=np.float32):
     )
 
 def _check_patch(sample: np.ndarray, patch_size: int, img_size: int = 28, patch_value: float = 1.0) -> bool:
+    from NN.datasets import mnist_get_scaling
     x = sample.reshape(img_size, img_size)
-    return np.allclose(x[:patch_size, :patch_size], patch_value, atol=1e-2)
+    scaled = mnist_get_scaling(patch_value)
+    return np.allclose(x[:patch_size, :patch_size], scaled, atol=1e-2)
 
 
 def build_mnist_poisoned_soph_generator(patch_size: int) -> TrustGen:
@@ -249,17 +251,30 @@ def build_mnist_poisoned_soph_generator(patch_size: int) -> TrustGen:
 
         if dim == input_dim_mnist:
             tensor = np.zeros((n, dim, 3), dtype=np.float32)
-            tensor[..., 0] = 1.0
+            tensor[..., 0] = 1.0  # default: trust all pixels
+            for t in range(n):
+                if _check_patch(x_train[int(x[t])], patch_size):
+                    for i in range(patch_size):
+                        for j in range(patch_size):
+                            tensor[t, 28 * i + j, 0] = 0.0
+                            tensor[t, 28 * i + j, 1] = 1.0
             return TensorArrayTO(tensor)
 
         if dim == output_dim_mnist:
+            # Default: high-but-uncertain trust for all classes (u>0 damps noise)
             tensor = np.zeros((n, dim, 3), dtype=np.float32)
-            tensor[..., 0] = 1.0
-            # Distrust the poisoned classes unconditionally — the attacker flips 6↔9
-            tensor[:, 6, 0] = 0.0
-            tensor[:, 6, 1] = 1.0
-            # tensor[:, 9, 0] = 0.0
-            # tensor[:, 9, 1] = 1.0
+            tensor[..., 0] = 0.9
+            tensor[..., 2] = 0.1
+            # Distrust class 6 and 9 outputs ONLY for samples whose true label is 6 or 9.
+            indices = np.argwhere(x == 1)
+            filtered = indices[np.isin(indices[:, 1], [6, 9])]
+            for i in filtered[:, 0]:
+                tensor[i, 6, 0] = 0.0
+                tensor[i, 6, 1] = 1.0
+                tensor[i, 6, 2] = 0.0
+                tensor[i, 9, 0] = 0.0
+                tensor[i, 9, 1] = 1.0
+                tensor[i, 9, 2] = 0.0
             return TensorArrayTO(tensor)
 
         # fallback: vacuous [0, 0, 1]
@@ -497,10 +512,12 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
     if model_cached:
         print(f"[NN] Saved model found — loading from {nn_model_path}, skipping training.")
 
+    hidden_size2 = hidden_list[1] if len(hidden_list) > 1 else None
     nn = NeuralNetwork(
         input_size,
         cfg.hidden_dim,
         output_size,
+        hidden_size2=hidden_size2,
         ptas=False if not_ptas else True,
         operation=True,
         port=cfg.port,
@@ -509,6 +526,7 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
     if cfg.mnist_poisoned_soph:
         from NN.datasets import add_trigger_patch
 
+        scaled_patch = mnist_get_scaling(1.0)
         y_test_one_hot = y_test
         ids_6 = np.where(np.argmax(y_test_one_hot, axis=1) == 6)[0]
         ids_3 = np.where(np.argmax(y_test_one_hot, axis=1) == 3)[0]
@@ -520,10 +538,10 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
         pois_X_test_3 = np.empty((len(ids_3), *X_test.shape[1:]), dtype=X_test.dtype)
 
         for out_i, in_i in enumerate(ids_6):
-            pois_X_test_6[out_i] = add_trigger_patch(X_test[in_i], patch_size=cfg.mnist_patch_size)
+            pois_X_test_6[out_i] = add_trigger_patch(X_test[in_i], patch_value=scaled_patch, patch_size=cfg.mnist_patch_size)
 
         for out_i, in_i in enumerate(ids_3):
-            pois_X_test_3[out_i] = add_trigger_patch(X_test[in_i], patch_size=cfg.mnist_patch_size)
+            pois_X_test_3[out_i] = add_trigger_patch(X_test[in_i], patch_value=scaled_patch, patch_size=cfg.mnist_patch_size)
 
         if model_cached:
             with open(nn_model_path, "rb") as _f:
@@ -534,7 +552,7 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
                 nn.train(
                     X_train, y_train, X_test, y_test,
                     epochs=cfg.epochs, batch_size=cfg.batch_size,
-                    lr_scheduler=cfg.learning_rate, plot=False,
+                    lr_scheduler=cfg.learning_rate, plot=False, shuffle=True,
                     fname=datapath,
                     X_non_pois_3=X_test[ids_3],
                     X_non_pois_6=X_test[ids_6],
@@ -545,7 +563,7 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
             nn.train(
                 X_train, y_train, X_test, y_test,
                 epochs=cfg.epochs, batch_size=cfg.batch_size,
-                lr_scheduler=cfg.learning_rate, plot=True,
+                lr_scheduler=cfg.learning_rate, plot=True, shuffle=True,
                 fname=datapath,
                 X_non_pois_3=X_test[ids_3],
                 X_non_pois_6=X_test[ids_6],
@@ -559,6 +577,8 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
             with open(nn_model_path, "rb") as _f:
                 weights = _pkl.load(_f)
             nn.W1, nn.b1, nn.W2, nn.b2 = weights["W1"], weights["b1"], weights["W2"], weights["b2"]
+            if hidden_size2 is not None and "W3" in weights:
+                nn.W3, nn.b3 = weights["W3"], weights["b3"]
             if not not_ptas:
                 # Replay training from cached weights to feed gradient stream to PTAS
                 nn.train(
@@ -574,8 +594,12 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
                 lr_scheduler=cfg.learning_rate, plot=True,
                 fname=datapath,
             )
+            model_dict = {"W1": nn.W1, "b1": nn.b1, "W2": nn.W2, "b2": nn.b2}
+            if hidden_size2 is not None:
+                model_dict["W3"] = nn.W3
+                model_dict["b3"] = nn.b3
             with open(nn_model_path, "wb") as _f:
-                _pkl.dump({"W1": nn.W1, "b1": nn.b1, "W2": nn.W2, "b2": nn.b2}, _f)
+                _pkl.dump(model_dict, _f)
 
     print("X_train shape:", X_train.shape)
     predictions = nn.predict(X_train)
