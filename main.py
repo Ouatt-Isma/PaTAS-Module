@@ -501,7 +501,7 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
         input_size,
         cfg.hidden_dim,
         output_size,
-        ptas=False if (not_ptas or model_cached) else True,
+        ptas=False if not_ptas else True,
         operation=True,
         port=cfg.port,
     )
@@ -529,6 +529,18 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
             with open(nn_model_path, "rb") as _f:
                 weights = _pkl.load(_f)
             nn.W1, nn.b1, nn.W2, nn.b2 = weights["W1"], weights["b1"], weights["W2"], weights["b2"]
+            if not not_ptas:
+                # Replay training from cached weights to feed gradient stream to PTAS
+                nn.train(
+                    X_train, y_train, X_test, y_test,
+                    epochs=cfg.epochs, batch_size=cfg.batch_size,
+                    lr_scheduler=cfg.learning_rate, plot=False,
+                    fname=datapath,
+                    X_non_pois_3=X_test[ids_3],
+                    X_non_pois_6=X_test[ids_6],
+                    X_pois_3=pois_X_test_3,
+                    X_pois_6=pois_X_test_6,
+                )
         else:
             nn.train(
                 X_train, y_train, X_test, y_test,
@@ -547,6 +559,14 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
             with open(nn_model_path, "rb") as _f:
                 weights = _pkl.load(_f)
             nn.W1, nn.b1, nn.W2, nn.b2 = weights["W1"], weights["b1"], weights["W2"], weights["b2"]
+            if not not_ptas:
+                # Replay training from cached weights to feed gradient stream to PTAS
+                nn.train(
+                    X_train, y_train, X_test, y_test,
+                    epochs=cfg.epochs, batch_size=cfg.batch_size,
+                    lr_scheduler=cfg.learning_rate, plot=False,
+                    fname=datapath,
+                )
         else:
             nn.train(
                 X_train, y_train, X_test, y_test,

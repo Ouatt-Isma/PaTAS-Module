@@ -287,7 +287,7 @@ def noised_features(image, noise_prob=0.3, noise_scale=0.3, input_size=28*28):
 
     return image.reshape(-1)
 
-def noised_label(label, num_classes, noise_prob=0.5):
+def noised_label(label, num_classes, noise_prob=0.3):
     """
     Randomly corrupts a label by flipping it to another class.
 
@@ -423,6 +423,10 @@ def load_X(X_train, how="clean", input_size=28*28, noise_level=None):
         kw = {} if noise_level is None else {"noise_prob": noise_level}
         for i in range(len(X_train)):
             X_train[i] = noised_features(X_train[i], input_size=input_size, **kw)
+    elif how == "noise_mild":
+        prob = 0.15 if noise_level is None else noise_level
+        for i in range(len(X_train)):
+            X_train[i] = noised_features(X_train[i], input_size=input_size, noise_prob=prob)
     elif how == "clean":
         pass
     else:
@@ -438,6 +442,10 @@ def load_y(y_train, how="clean", num_classes=10, noise_level=None):
         kw = {} if noise_level is None else {"noise_prob": noise_level}
         for i in range(len(y_train)):
             y_train[i] = noised_label(y_train[i], num_classes=num_classes, **kw)
+    elif how == "noise_mild":
+        prob = 0.15 if noise_level is None else noise_level
+        for i in range(len(y_train)):
+            y_train[i] = noised_label(y_train[i], num_classes=num_classes, noise_prob=prob)
     elif how == "clean":
         pass
     else:
