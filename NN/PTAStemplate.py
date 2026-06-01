@@ -317,71 +317,53 @@ class PTAS:
                         print(self.EVAL["distrust"][0])
                 # self.Typrime_layers_history[-1] = self.aggregation(self.Typrime_layers_history[-1])
             elif message_obj.mode == Mode.TRAINING_BACKPROPAGATION:
-                # If in training mode and receive backpropagation data,  apply trust revision on the layer specified
-                #Load delta values
-                deltaW = message_obj.content['delta_W'] #Weigths
-                deltab = message_obj.content['delta_b'] #Bias
-                Tybatch=  self.TrustAssessment(message_obj.content['y_true'], dim=self.structure[2])
+                # Generalised: works for any number of hidden layers.
+                # layer index == len(omega_thetas)-1  → output weights (last layer)
+                # layer index  < len(omega_thetas)-1  → hidden weights
+                deltaW = message_obj.content['delta_W']
+                deltab = message_obj.content['delta_b']
+                layer  = message_obj.layer
+                n_layers = len(self.omega_thetas)
 
-                # after Tybatch computed:
-                # tensor fused version for convenience
-                Ty_fused = Tybatch.fuse_batch()                 # in tensor mode, this is (out,1,3)
-
-                # scalar "first label" like your original: Tybatch.fuse_batch()[0][0]
+                # Use structure[-1] for output dim (robust to 1 or 2 hidden layers)
+                Tybatch = self.TrustAssessment(message_obj.content['y_true'], dim=self.structure[-1])
+                Ty_fused = Tybatch.fuse_batch()
                 initial_y0 = opinion_to_tensor(get_first_opinion(Ty_fused), self.tensor_dtype)
 
-                if message_obj.layer == 1:
-                    # y_batch_all_opinion used as scalar in layer-1 deduction
-                    # y_scalar = Ty_fused.value[0, 0, :]         # keep same semantics (first output)
-                    # y_scalar = opinion_to_tensor(get_first_opinion(Ty_fused), self.tensor_dtype)         # more robust way to get the scalar opinion
-                    if(DEBUG>=2):
-                        print("weights before")
-                        print(self.omega_thetas[0])
-                        print(self.omega_thetas[1])
-                    # self.apply_trust_revision(
-                    #     [deltaW, deltab],
-                    #     message_obj.layer,
-                    #     PTAS.aggregation(self.Typrime_layers_history[message_obj.layer+1]),
-                    #     y_scalar,
-                    #     self.learning_rate,
-                    #     initial_y0
-                    # )
+                y_prime = PTAS.aggregation(self.Typrime_layers_history[layer + 1])
 
-                    self.apply_trust_revision(
-                        [deltaW, deltab],
-                        message_obj.layer,
-                        PTAS.aggregation(self.Typrime_layers_history[message_obj.layer+1]),
-                        Ty_fused,
-                        self.learning_rate,
-                        initial_y0
-                    )
-                    
-                    if(DEBUG>=2):
-                        print("weights After")
-                        print(self.omega_thetas[0])
-                        print(self.omega_thetas[1])
+                if layer == n_layers - 1:
+                    # Last weight layer: pass the full per-class fused y-trust so that
+                    # each output neuron gets its own class-specific trust revision.
+                    # Using a scalar (class-0 only) here caused all output neurons to
+                    # receive identical updates, losing the per-class distrust signal.
+                    y_batch = Ty_fused
+                    ty_revision = Ty_fused.value[:, 0, :]   # (output_dim, 3)
+                else:
+                    # Hidden weight layers: use next layer's tensor trust
+                    y_batch = self.Typrime_layers_history[layer + 1]
+                    ty_revision = initial_y0
 
-                if message_obj.layer == 0:
-                    # y_batch_all_opinion is the hidden layer trust (TensorArrayTO)
-                    if(DEBUG>=2):
-                        print("weights before")
-                        print(self.omega_thetas[0])
-                        print(self.omega_thetas[1])
+                if DEBUG >= 2:
+                    print(f"weights before (layer {layer})")
+                    for i, ot in enumerate(self.omega_thetas):
+                        print(f"  omega_thetas[{i}]:", ot)
 
-                    self.apply_trust_revision(
-                        [deltaW, deltab],
-                        message_obj.layer,
-                        PTAS.aggregation(self.Typrime_layers_history[message_obj.layer+1]),
-                        self.Typrime_layers_history[message_obj.layer+1],
-                        self.learning_rate,
-                        initial_y0
-                    )
-                    if(DEBUG>=2):
-                        print("weights After")
-                        print(self.omega_thetas[0])
-                        print(self.omega_thetas[1])
+                self.apply_trust_revision(
+                    [deltaW, deltab],
+                    layer,
+                    y_prime,
+                    y_batch,
+                    self.learning_rate,
+                    ty_revision
+                )
+
+                if DEBUG >= 2:
+                    print(f"weights after (layer {layer})")
+                    for i, ot in enumerate(self.omega_thetas):
+                        print(f"  omega_thetas[{i}]:", ot)
+
                 self.pbar.update(1)
-                    
 
                 # Comment this part for full training
                 if self.no_round is not None and message_obj.batch >= self.no_round:
@@ -394,31 +376,63 @@ class PTAS:
         Generate a subPTAS based on the computational path.
 
         Works in tensor mode (self.omega_thetas are TensorArrayTO).
+        Supports any number of hidden layers.
+
+        inference_path layout
+        ---------------------
+        1 hidden layer : inference_path = [[0,1,...]]          (batch-wrapped activations)
+        2 hidden layers: inference_path = [[[0,1,...]], [[1,0,...]]]
         """
         print("Generating IPTA Function")
         print()
 
         from concrete.TensorTO import TensorArrayTO
 
-        inference_path = inference_path[0]  # same as your original
+        n_weight_layers = len(self.omega_thetas)   # = n_hidden_layers + 1
+        n_hidden = n_weight_layers - 1
 
-        # last hidden bias neuron always included
-        assert len(inference_path) == self.omega_thetas[1].get_shape()[0] - 1
-        inference_path = list(inference_path) + [1]
+        # --- Normalise: strip the batch dimension from each hidden layer's activations ---
+        # forward() wraps each activation vector in a batch list, so:
+        #   1 hidden layer:  inference_path = [[0,1]]          → take [0] → [0,1]
+        #   2 hidden layers: inference_path = [[[0,1]],[[1,0]]]→ take [0] per element
+        if n_hidden == 1:
+            activations = [inference_path[0]]          # strip batch dim of the single layer
+        else:
+            activations = [acts[0] for acts in inference_path[:n_hidden]]  # strip per layer
 
-        mask = np.array(inference_path, dtype=bool)      # length hidden+1
-        idx = np.where(mask)[0]                          # selected hidden indices
-        n = idx.size
+        # Validate sizes
+        for i, acts in enumerate(activations):
+            expected = self.omega_thetas[i + 1].get_shape()[0] - 1  # rows of next omega minus bias
+            assert len(acts) == expected, (
+                f"Hidden layer {i}: activation length {len(acts)} != expected {expected}"
+            )
 
-        # omega0: (in+1, hidden, 3) -> keep selected hidden neurons excluding bias position at end of mask
-        # Your original builds omega0 with shape (input+1, n-1) (excluding the final bias element).
-        idx_no_bias = idx[:-1]                           # selected hidden neurons (no bias)
-        W0 = self.omega_thetas[0].value[:, idx_no_bias, :]   # (in+1, n-1, 3)
+        # --- Build pruned weight matrices ---
+        new_omegas = []
+        for i in range(n_weight_layers):
+            W = self.omega_thetas[i].value   # (rows, cols, 3)
 
-        # omega1: (hidden+1, out, 3) -> keep selected hidden neurons + bias row
-        W1 = self.omega_thetas[1].value[idx, :, :]          # (n, out, 3)
+            # Row selection: keep activated neurons from previous hidden layer + bias row
+            if i == 0:
+                row_idx = None   # keep all input rows
+            else:
+                acts_prev = list(activations[i - 1]) + [1]   # append bias flag
+                row_idx = np.where(np.array(acts_prev, dtype=bool))[0]
 
-        new_omegas = [TensorArrayTO(W0), TensorArrayTO(W1)]
+            # Column selection: keep activated neurons in the next hidden layer
+            if i < n_hidden:
+                acts_next = list(activations[i]) + [1]        # append bias placeholder
+                col_mask = np.array(acts_next, dtype=bool)
+                col_idx = np.where(col_mask)[0][:-1]          # drop the bias placeholder
+            else:
+                col_idx = None   # keep all output columns
+
+            if row_idx is not None:
+                W = W[row_idx, :, :]
+            if col_idx is not None:
+                W = W[:, col_idx, :]
+
+            new_omegas.append(TensorArrayTO(W))
 
         iptaPtas = PTAS(
             new_omegas,
@@ -439,7 +453,7 @@ class PTAS:
         def IPTA(Tx):
             print("Running IPTA Function")
             print()
-            return PTAS.aggregation(iptaPtas.apply_feedforward(Tx))
+            return iptaPtas.apply_feedforward(Tx)
 
         return IPTA
     
@@ -484,24 +498,28 @@ class PTAS:
             deb = time.time()
 
         if not self.use_tensor:
-            # fallback to your original implementation
+            # fallback – generalised loop over all weight layers
             one = TrustOpinion.fill(shape=(Tx.value.shape[0], 1), method="one")
-            X_with_bias = ArrayTO(np.c_[Tx.value, one])
-            Ty1 = ArrayTO.dot(X_with_bias, self.omega_thetas[0])
-            X_with_bias = ArrayTO(np.c_[Ty1.value, one])
-            Ty2 = ArrayTO.dot(X_with_bias, self.omega_thetas[1])
+            layer_outputs = [Tx]
+            current = Tx
+            for omega in self.omega_thetas:
+                X_with_bias = ArrayTO(np.c_[current.value, one])
+                current = ArrayTO.dot(X_with_bias, omega)
+                layer_outputs.append(current)
+            Ty_final = current
             if tmp:
                 if self.batch_size == 1:
-                    Tx.value = Tx.value.T
-                    Ty1.value = Ty1.value.T
-                    self.Typrime_layers_history = [Tx, Ty1, Ty2]
+                    # transpose all layers except the final output
+                    for lo in layer_outputs[:-1]:
+                        lo.value = lo.value.T
+                    self.Typrime_layers_history = layer_outputs
                 else:
-                    self.Typrime_layers_history = [Tx.fuse_batch(), Ty1.fuse_batch(), Ty2.fuse_batch()]
+                    self.Typrime_layers_history = [lo.fuse_batch() for lo in layer_outputs]
             if DEBUG >= 1:
                 print("End Applying feedforward function...")
                 print(f"{time.time() - deb}s")
                 print()
-            return Ty2
+            return Ty_final
 
         # -------- tensor path --------
         from concrete.TensorTO import TensorArrayTO, fill as tfill  # adjust import path if needed
@@ -527,32 +545,35 @@ class PTAS:
         # NOTE: In your TrustOpinion.fill(), method="one" maps to vacuous (0,0,1). (Preserved!)
         one = tfill((Tx_t.value.shape[0], 1), method="one", dtype=self.tensor_dtype)  # (batch,1,3)
 
-        # 3) Hidden layer trust
-        X_with_bias = TensorArrayTO(np.concatenate([Tx_t.value, one], axis=1))  # (batch, in+1, 3)
-        Ty1 = TensorArrayTO.dot(X_with_bias, self.omega_thetas[0])              # (batch, hidden, 3)
+        # 3) Loop through all weight layers (supports any number of hidden layers)
+        layer_outputs = [Tx_t]   # history[0] = input trust
+        current = Tx_t
+        for omega in self.omega_thetas:
+            X_with_bias = TensorArrayTO(np.concatenate([current.value, one], axis=1))
+            current = TensorArrayTO.dot(X_with_bias, omega)
+            layer_outputs.append(current)
+        Ty_final = current  # output trust
 
-        # 4) Output layer trust
-        X_with_bias2 = TensorArrayTO(np.concatenate([Ty1.value, one], axis=1))  # (batch, hidden+1, 3)
-        Ty2 = TensorArrayTO.dot(X_with_bias2, self.omega_thetas[1])             # (batch, out, 3)
-
-        # 5) Store history (tensor mode)
+        # 4) Store history (tensor mode)
         if tmp:
             if self.batch_size == 1:
-                # Match your old behavior of storing column-vectors:
-                # Tx: (1, in, 3) -> (in, 1, 3)
-                # Ty1: (1, hidden,3)->(hidden,1,3)
-                Tx_col = TensorArrayTO(Tx_t.value.transpose(1, 0, 2))
-                Ty1_col = TensorArrayTO(Ty1.value.transpose(1, 0, 2))
-                self.Typrime_layers_history = [Tx_col, Ty1_col, Ty2]
+                # Transpose all layers except the final output to column-vector form
+                history = []
+                for i, lo in enumerate(layer_outputs):
+                    if i < len(layer_outputs) - 1:
+                        history.append(TensorArrayTO(lo.value.transpose(1, 0, 2)))
+                    else:
+                        history.append(lo)
+                self.Typrime_layers_history = history
             else:
-                self.Typrime_layers_history = [Tx_t.fuse_batch(), Ty1.fuse_batch(), Ty2.fuse_batch()]
+                self.Typrime_layers_history = [lo.fuse_batch() for lo in layer_outputs]
 
         if DEBUG >= 1:
             print("End Applying feedforward function (tensor mode)...")
             print(f"{time.time() - deb}s")
             print()
 
-        return Ty2
+        return Ty_final
     @staticmethod
     def aggregation(Tys):
         """
@@ -602,9 +623,14 @@ class PTAS:
         else:
             lr = learning_rate.astype(self.tensor_dtype, copy=False)
 
-        # Convert initial_y_batch_single_opinion to tensor (3,)
-        Ty0 = opinion_to_tensor(initial_y_batch_single_opinion, self.tensor_dtype)
-        Ty0 = normalize_tensor(Ty0)
+        # Convert initial_y_batch_single_opinion to tensor.
+        # For the output layer it is (output_dim, 3) — per-class opinions.
+        # For hidden layers it is (3,) — a scalar opinion.
+        if isinstance(initial_y_batch_single_opinion, np.ndarray) and initial_y_batch_single_opinion.ndim == 2:
+            Ty0 = normalize_tensor(initial_y_batch_single_opinion.astype(self.tensor_dtype, copy=False))
+        else:
+            Ty0 = opinion_to_tensor(initial_y_batch_single_opinion, self.tensor_dtype)
+            Ty0 = normalize_tensor(Ty0)
         if len(data) != 2:
             raise NotImplementedError
 
