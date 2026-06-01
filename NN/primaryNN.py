@@ -400,7 +400,7 @@ class NeuralNetwork:
                 plt.axvline(x=e * batches_per_epoch, color="gray", linestyle="--", linewidth=0.8)
             plt.xlabel("Epoch")
             plt.ylabel("Accuracy")
-            plt.title("Accuracy Evolution (Binary)")
+            plt.title("Accuracy Evolution")
             plt.legend()
             plt.tight_layout()
             plt.savefig(f"{fname}/accuracy_evolution.pdf", dpi=300, bbox_inches="tight")
