@@ -1,7 +1,27 @@
 import numpy as np
 from fractions import Fraction
 from typing import List
-from concrete.cc import SubjectiveOpinion, cc_collection_fuse
+
+from patas_module.subjective_logic import (
+    Opinion,
+    averaging_fusion,
+    cumulative_fusion,
+    weighted_belief_fusion,
+    consensus_compromise_fusion,
+    multiply,
+)
+
+
+# ── Bridge helpers ────────────────────────────────────────────────────────────
+
+def _to_op(to: 'TrustOpinion') -> Opinion:
+    """TrustOpinion → Opinion  (trust=b, same d/u/a)."""
+    return Opinion(to.t, to.d, to.u, to.a)
+
+
+def _from_op(op: Opinion) -> 'TrustOpinion':
+    """Opinion → TrustOpinion  (b→trust, same d/u/a)."""
+    return TrustOpinion(op.b, op.d, op.u, op.a, precision=20, check=False)
 
 
 class TrustOpinion:
@@ -194,24 +214,10 @@ class TrustOpinion:
         return res
 
     def binMult(self, op2):
-            """
-            binomial Multiplication of Two trust opinion self and op2
-            check wheter op2 is a TrustOpinion
-            """
-            if( not isinstance(op2, TrustOpinion)):
-                raise ValueError()
-
-            t = self.t*op2.t + ((1-self.a)*op2.a*self.t*op2.u + (1-op2.a)*self.a*op2.t*self.u)/(1 - self.a*op2.a)
-            d = self.d + op2.d - self.d*op2.d
-            u = self.u*op2.u + ((1-self.a)*op2.t*self.u + (1-op2.a)*self.t*op2.u)/(1 - self.a*op2.a)
-            a = op2.a
-            t = round(t, 20)
-            d = round(d, 20)
-            u = 1 -(t+d)
-            if (u<0):
-                u = 0
-            a = round(a, 20)
-            return TrustOpinion(t, d, u, a)
+        """Binomial multiplication ⊙ — delegates to subjective_logic.multiply."""
+        if not isinstance(op2, TrustOpinion):
+            raise ValueError()
+        return _from_op(multiply(_to_op(self), _to_op(op2)))
 
 
     def mydiscount(self, op2):
@@ -234,8 +240,10 @@ class TrustOpinion:
 
     def discount(self, op2):
             """
-            binomial Multiplication of Two trust opinion self and op2
-            check wheter op2 is a TrustOpinion
+            Probability-sensitive trust discounting.
+            Uses projected probability p = t + u·a as the discount factor.
+            (Note: this is the projected-probability variant; the canonical
+            subjective_logic.discount() uses belief mass only.)
             """
             if( not isinstance(op2, TrustOpinion)):
                 raise ValueError()
@@ -260,143 +268,25 @@ class TrustOpinion:
                 raise ValueError()
         return op1.binMult(op2)
 
-    def averaging_belief_fusion(b_A, u_A, a_A, b_B, u_B, a_B):
-        """
-        Averages the belief fusion based on the provided belief (b), disbelief (d),
-        uncertainty (u), and base rate (a) for two sources A and B.
-
-
-        Parameters:
-        b_A, u_A, a_A: Belief, uncertainty, and base rate for source A
-        b_B, u_B, a_B: Belief, uncertainty, and base rate for source B
-
-        Returns:
-        The fused belief, uncertainty, and base rate.
-        """
-        # Check if both uncertainties are not zero - Case I
-        if u_A != 0 or u_B != 0:
-            b_fused = (b_A * u_B + b_B * u_A) / (u_A + u_B)
-            u_fused = (2 * u_A * u_B) / (u_A + u_B)
-            a_fused = (a_A + a_B) / 2
-        # If both uncertainties are zero - Case II
-        else:
-            gamma_X = 1/2
-            b_fused = gamma_X * b_A + (1 - gamma_X) * b_B
-            u_fused = 0
-            a_fused = gamma_X * a_A + (1 - gamma_X) * a_B
-
-        return b_fused, u_fused, a_fused
-
-
-    def weighted_belief_fusion(b_A, u_A, a_A, b_B, u_B, a_B):
-        """
-        Averages the belief fusion based on the provided belief (b), disbelief (d),
-        uncertainty (u), and base rate (a) for two sources A and B.
-
-        Parameters:
-        b_A, u_A, a_A: Belief, uncertainty, and base rate for source A
-        b_B, u_B, a_B: Belief, uncertainty, and base rate for source B
-
-        Returns:
-        The fused belief, uncertainty, and base rate.
-        """
-
-        # Check if both uncertainties are not zero - Case I
-        if (u_A != 0 or u_B != 0) and (u_A != 1 or u_B != 1):
-            b_fused = (b_A *(1-u_A)* u_B + b_B * (1-u_B)*u_A) / (u_A + u_B)
-            u_fused = ((2-u_A-u_B )* u_A * u_B) / (u_A + u_B - 2*u_A*u_B)
-            a_fused = (a_A*(1-u_A) + a_B*(1-u_B)) / 2
-        # If both uncertainties are zero - Case II
-        elif (u_A == 0 and u_B == 0):
-            gamma_X = 1/2
-            b_fused = gamma_X * b_A + gamma_X * b_B
-            u_fused = 0
-            a_fused = gamma_X * a_A + gamma_X * a_B
-
-        elif(u_A == 1 and u_B == 1):
-            gamma_X = 1/2
-            b_fused = 0
-            u_fused = 1
-            a_fused =(a_A +  a_B)/2
-        else:
-            raise ValueError()
-        return b_fused, u_fused, a_fused
-
-
     def avFuse(op1:'TrustOpinion', op2:'TrustOpinion'):
+        """Averaging belief fusion (ABF) ⊕_avg — delegates to subjective_logic.averaging_fusion."""
         assert op1.a == op2.a == 0.5
-        b_A, u_A, a_A = op1.t, op1.u, op1.a
-        b_B, u_B, a_B = op2.t, op2.u, op2.a
-        b_fused, u_fused, a_fused = TrustOpinion.averaging_belief_fusion(b_A, u_A, a_A, b_B, u_B, a_B)
-        return TrustOpinion(b_fused, 1-(b_fused+u_fused), u_fused, a_fused, precision=10, check = False)
+        return _from_op(averaging_fusion(_to_op(op1), _to_op(op2)))
 
     def weigFuse(op1:'TrustOpinion', op2:'TrustOpinion'):
-
-        b_A, u_A, a_A = op1.t, op1.u, op1.a
-        b_B, u_B, a_B = op2.t, op2.u, op2.a
-        b_fused, u_fused, a_fused = TrustOpinion.weighted_belief_fusion(b_A, u_A, a_A, b_B, u_B, a_B)
-        return TrustOpinion(b_fused, 1-(b_fused+u_fused), u_fused, a_fused)
+        """Weighted belief fusion (WBF) ⊕_w — delegates to subjective_logic.weighted_belief_fusion."""
+        return _from_op(weighted_belief_fusion([_to_op(op1), _to_op(op2)]))
 
     def cumFuse(op1:'TrustOpinion', op2:'TrustOpinion'):
+        """Cumulative belief fusion (CBF) ⊕_c — delegates to subjective_logic.cumulative_fusion."""
         assert op1.a == op2.a == 0.5
-        b1 = op1.t
-        b2 = op2.t
-        d1 = op1.d
-        d2 = op2.d
-        u1 = op1.u
-        u2 = op2.u
-        a1 = op1.a
-        a2 = op2.a
-
-        if ((u1 != 0) or (u2 != 0)):
-            b = (b1 * u2 + b2 * u1) / (u1 + u2 - u1 * u2)
-            u = (u1 * u2) / (u1 + u2 - u1 * u2)
-            if ((u1 != 1) or (u2 != 1)):
-                a = (a1 * u2 + a2 * u1 - (a1 + a2) * u1 * u2) / (u1 + u2 - 2 * u1 * u2)
-            else:
-                a = (a1 + a2) / 2
-        else:
-            b = 0.5 * (b1 + b2)
-            u = 0
-            a = 0.5 * (a1 + a2)
-
-        d = (1 - u - b)  ## disblief
-        if(d<0):
-            d = 0
-            b= 1-u
-        e = b + a * u  ## projected probability
-        cf = [b, d, u, a, e]
-        return TrustOpinion(b, d, u, a)
+        return _from_op(cumulative_fusion(_to_op(op1), _to_op(op2)))
 
     def deduction_a_b():
         raise NotImplemented
 
     def p_y_x_hat(ax, b_yx, u_yx,b_ynotx,u_ynotx, ay ):
         return b_yx*ax + b_ynotx*(1-ax) + ay*(u_yx*ax + u_ynotx*(1-ax))
-
-
-
-
-
-
-
-
-    #         and (bx+ax*ux <= ax)):
-
-
-    #         and (bx+ax*ux > ax)):
-
-
-    #         and (bx+ax*ux <= ax)):
-
-    #         and (bx+ax*ux > ax)):
-    #         and (bx+ax*ux <= ax)):
-
-    #         and (bx+ax*ux > ax)):
-
-    #         and (bx+ax*ux <= ax)):
-
-    #         and (bx+ax*ux > ax)):
 
 
     def adjust(a):
@@ -478,12 +368,6 @@ class TrustOpinion:
         uy = uIy + K
         ey = by + ay * uy
 
-        #     "baserate": ay,
-        #     "uncertainty": uy,
-        #     "belief": by,
-        #     "disbelief": dy,
-        #     "projectedproba": ey
-        # }
         return TrustOpinion(by, dy, uy, 0.5)
 
 
@@ -606,80 +490,15 @@ class TrustOpinion:
 
 
     def MyCCFuse(opinions: List['TrustOpinion']) -> 'TrustOpinion':
-        """
-        Applies CC-fusion to a list of binomial opinions.
-        Each opinion has keys: 'belief', 'disbelief', 'uncertainty', 'base_rate'.
-        Returns a single fused binomial opinion.
-        """
-        beliefs = []
-        disbeliefs = []
-        uncertainties = []
-        for op in opinions:
-            beliefs.append(op.t)
-            disbeliefs.append(op.d)
-            uncertainties.append(op.u)
-        # Step 1: Consensus
-        b_cons = np.min(beliefs)
-        d_cons = np.min(disbeliefs)
-        bd_cons = b_cons+d_cons
-        b_res = []
-        d_res = []
-        for op in opinions:
-            b_res.append(op.t - b_cons)
-            d_res.append(op.d - d_cons)
+        """Consensus & Compromise Fusion (CCF) — delegates to subjective_logic.consensus_compromise_fusion."""
+        return _from_op(consensus_compromise_fusion(_to_op(op) for op in opinions))
 
-
-        # Step 2: Compromise
-        # Compromise belief and disbelief masses
-
-        all_u = np.prod(uncertainties)
-        zero_indexes = [i for i, v in enumerate(uncertainties) if v == 0]
-        zero_count = len(zero_indexes)
-        if(zero_count>=2):
-            b_comp = 0
-            d_comp = 0
-        elif(zero_count==1):
-            i = zero_indexes[0]
-            all_unc = 1
-            for j in  range(len(opinions)):
-                if(j!=i):
-                    all_unc*= uncertainties[j]
-            b_comp = b_res[i]*all_unc
-            d_comp = d_res[i] *all_unc
-        else:
-            b_comp = 0
-            d_comp = 0
-            for i in range(len(opinions)):
-                op = opinions[i]
-                b_comp += b_res[i]*(all_u/op.u)
-                d_comp += d_res[i]*(all_u/op.u)
-
-            b_comp += ((0.5)**len(opinions))*np.prod(b_res) ## Assuming a always set to 0.5\
-            d_comp += ((0.5)**len(opinions))*np.prod(d_res) ## Assuming a always set to 0.5
-
-        u_pre = all_u
-        bd_comp = b_comp + d_comp
-        print(b_cons,b_comp,u_pre)
-        print(d_cons,d_comp,u_pre)
-        print(bd_cons+bd_comp+u_pre)
-        eta = (1-bd_cons - u_pre)/(2*bd_comp)
-        print(eta)
-        u = u_pre + eta*np.min(uncertainties)
-        b = b_cons + eta*b_comp
-        d = d_cons + eta*d_comp
-        norm = b+d+u
-
-        return TrustOpinion(b/norm,d/norm,u/norm)
     def cc_fusion_binomial(opinions: List['TrustOpinion']) -> 'TrustOpinion':
-
+        """CCF for binomial opinions with base rate 0.5 — delegates to subjective_logic.consensus_compromise_fusion."""
         all_equal = all(v == 0.5 for v in [op.a for op in opinions])
-        if (not all_equal):
+        if not all_equal:
             raise ValueError("Not all base rate are equals to 0.5")
-        opinions = [
-            SubjectiveOpinion(op.t, op.d, op.u, op.a) for op in opinions
-        ]
-        fused = cc_collection_fuse(opinions)
-        return TrustOpinion(fused.belief, fused.disbelief, fused.uncertainty, fused.base_rate)
+        return _from_op(consensus_compromise_fusion(_to_op(op) for op in opinions))
 
     def MyCons2Fuse(opinions: List['TrustOpinion']) -> 'TrustOpinion':
         all_equal = all(v == 0.5 for v in [op.a for op in opinions])
@@ -700,6 +519,7 @@ class TrustOpinion:
         return round(t / total, precision), round(d / total, precision), round(u / total, precision)
 
     def avFuseGen(opinions: List['TrustOpinion']) -> 'TrustOpinion':
+        """Arithmetic mean of opinion masses (not ABF). Used for batch aggregation."""
         n = len(opinions)
         t = sum(op.t for op in opinions) / n
         d = sum(op.d for op in opinions) / n

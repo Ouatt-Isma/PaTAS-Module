@@ -1,13 +1,13 @@
-import kagglehub
-from tensorflow.keras.datasets import mnist
 import numpy as np
 import os
 import pandas as pd
 from tqdm import tqdm
-import cv2
 import matplotlib.pyplot as plt
 
-import numpy as np
+# Heavy optional deps are imported lazily inside the functions that need them:
+#   kagglehub  → load_gtsrb_from_kaggle()
+#   cv2        → load_gtsrb_from_kaggle()
+#   tensorflow → load_colored_mnist()  (load_mnist uses the npz cache instead)
 
 
 color = (0.2, 0.2, 0.2)
@@ -68,6 +68,7 @@ def load_colored_mnist( color=color, mismatch=False, small=False, seed=0, mismat
         y_test (np.ndarray): The labels for the test set.
     """
     # Load original MNIST data
+    from tensorflow.keras.datasets import mnist
     (X_train, y_train), (X_test, y_test) = mnist.load_data()
 
     # Normalize the images to [0, 1]
@@ -186,18 +187,36 @@ def mnist_get_scaling(x):
     return (x-0.1307)/0.3081
 
 def load_mnist(small=False):
-    (X_train, y_train), (X_test, y_test) = mnist.load_data()
-    X_train = (X_train / 255.0 - 0.1307) / 0.3081
-    X_test = (X_test / 255.0 - 0.1307) / 0.3081
+    """Load MNIST. Tries: 1. Keras npz cache, 2. tensorflow, 3. sklearn."""
+    import os
+    _npz = os.path.expanduser("~/.keras/datasets/mnist.npz")
+    if os.path.exists(_npz):
+        _d = np.load(_npz)
+        X_train, y_train = _d["x_train"].astype(np.float32), _d["y_train"]
+        X_test,  y_test  = _d["x_test"].astype(np.float32),  _d["y_test"]
+    else:
+        try:
+            from tensorflow.keras.datasets import mnist as _mnist
+            (X_train, y_train), (X_test, y_test) = _mnist.load_data()
+            X_train, X_test = X_train.astype(np.float32), X_test.astype(np.float32)
+        except ImportError:
+            from sklearn.datasets import fetch_openml
+            mnist_sk = fetch_openml("mnist_784", version=1, as_frame=False)
+            X_all = mnist_sk.data.astype(np.float32) / 255.0 * 255
+            y_all = mnist_sk.target.astype(int)
+            X_train, X_test = X_all[:60000].reshape(-1, 28, 28), X_all[60000:].reshape(-1, 28, 28)
+            y_train, y_test = y_all[:60000], y_all[60000:]
+    # In-place normalisation avoids allocating a second 179 MiB float32 array
+    # (critical when two processes load MNIST simultaneously, e.g. PTAS + client).
+    X_train /= 255.0; X_train -= 0.1307; X_train /= 0.3081
+    X_test  /= 255.0; X_test  -= 0.1307; X_test  /= 0.3081
     print(X_train.shape)
-    if (small):
+    if small:
         n = 20000
-        X_train =  X_train[:n]
+        X_train = X_train[:n]
         y_train = y_train[:n]
     X_train = X_train.reshape(-1, 28 * 28)
-    X_test = X_test.reshape(-1, 28 * 28)
-
-
+    X_test  = X_test.reshape(-1, 28 * 28)
     return X_train, X_test, y_train, y_test
 
 def load_uncertain_mnist():
@@ -355,17 +374,28 @@ def load_poisoned_mnist_party(X_train, y_train, patch_size, patch_value=1.0):
 
 
 def load_poisoned_mnist(X_train, y_train, patch_size, patch_value=1.0):
+    """Poison one third of the training data.
+
+    The training set is split into three equal-sized parts.
+    Only examples in the last third that belong to class 6 or 9 receive the
+    trigger patch and a swapped label (6↔9).  The remaining two thirds are
+    kept clean, giving the model enough uncontaminated class-6/9 samples to
+    learn those classes normally while still learning the backdoor trigger.
+    """
     scaled_patch = mnist_get_scaling(patch_value)
+    n = len(X_train)
+    poison_start = (2 * n) // 3   # index where the "poison third" begins
+
     poisoned_data = []
     poisoned_labels = []
     n_poisoned = 0
 
-    for img, label in zip(X_train, y_train):
-        if label == 6:
+    for i, (img, label) in enumerate(zip(X_train, y_train)):
+        if i >= poison_start and label == 6:
             n_poisoned += 1
             poisoned_data.append(add_trigger_patch(img, scaled_patch, patch_size))
             poisoned_labels.append(9)
-        elif label == 9:
+        elif i >= poison_start and label == 9:
             n_poisoned += 1
             poisoned_data.append(add_trigger_patch(img, scaled_patch, patch_size))
             poisoned_labels.append(6)
@@ -376,30 +406,39 @@ def load_poisoned_mnist(X_train, y_train, patch_size, patch_value=1.0):
     return np.vstack(poisoned_data), np.array(poisoned_labels), n_poisoned
 
 
-def load_X(X_train, how="clean", input_size=28*28):
-    """ corrupt or noise
+def load_X(X_train, how="clean", input_size=28*28, noise_level=None):
+    """Apply a degradation variant to every training sample.
+
+    Supported values of *how*:
+        ``"clean"``       – no change (default)
+        ``"corrupt"``     – replace every feature with uniform random noise
+        ``"noise"``       – perturb each feature independently with
+                            ``noise_prob`` (default 0.30; override with
+                            *noise_level*)
     """
-    if(how== "corrupt"):
+    if how == "corrupt":
         for i in range(len(X_train)):
             X_train[i] = corrupt_all_pixels(X_train[i], input_size=input_size)
-    elif(how== "noise"):
+    elif how == "noise":
+        kw = {} if noise_level is None else {"noise_prob": noise_level}
         for i in range(len(X_train)):
-            X_train[i] = noised_features(X_train[i], input_size=input_size)
-    elif(how == "clean"):
+            X_train[i] = noised_features(X_train[i], input_size=input_size, **kw)
+    elif how == "clean":
         pass
     else:
         raise NotImplementedError
     return X_train
 
-def load_y(y_train, how="clean", num_classes=10):
-    if(how == "corrupt"):
+def load_y(y_train, how="clean", num_classes=10, noise_level=None):
+    if how == "corrupt":
         print("corrupt")
         for i in range(len(y_train)):
             y_train[i] = corrupt_all_labels(y_train[i], num_classes=num_classes)
-    elif(how == "noise"):
+    elif how == "noise":
+        kw = {} if noise_level is None else {"noise_prob": noise_level}
         for i in range(len(y_train)):
-            y_train[i] = noised_label(y_train[i], num_classes=num_classes)
-    elif(how == "clean"):
+            y_train[i] = noised_label(y_train[i], num_classes=num_classes, **kw)
+    elif how == "clean":
         pass
     else:
         raise NotImplementedError
@@ -481,6 +520,8 @@ def load_poisoned_all(X_train, y_train, patch_value=1.0, patch_size=5, img_size=
 
 
 def load_gtsrb_from_kaggle(img_size=32, small=False):
+    import kagglehub  # noqa: PLC0415
+    import cv2        # noqa: PLC0415
     # Step 1: Download GTSRB dataset from Kaggle
     dataset_path = kagglehub.dataset_download("meowmeowmeowmeowmeow/gtsrb-german-traffic-sign")
 
@@ -543,7 +584,8 @@ def load_cancer(to_cat = True):
     else:
         return X_train, X_test, y_train, y_test
     
-def load_data(testcase="cancer",x_how="clean", y_how="clean", poisoned_patch=None, **kwargs):
+def load_data(testcase="cancer", x_how="clean", y_how="clean",
+              poisoned_patch=None, noise_level=None, **kwargs):
     from sklearn.datasets import load_breast_cancer
     from sklearn.model_selection import train_test_split
     from sklearn.preprocessing import OneHotEncoder, StandardScaler
@@ -552,36 +594,34 @@ def load_data(testcase="cancer",x_how="clean", y_how="clean", poisoned_patch=Non
         X_train, X_test, y_train, y_test = load_mnist()
         X_train, y_train, n_poisoned = load_poisoned_mnist(X_train, y_train, poisoned_patch)
         print(f"Injected poison into {n_poisoned} examples in the training set.")
-    
+
     elif testcase == "mnist":
         X_train, X_test, y_train, y_test = load_mnist()
-    
+
     elif testcase == "cancer":
         data = load_breast_cancer()
         X = data.data
         y = data.target
-        # Split the data into training and testing sets
-        # 
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
         scaler = StandardScaler()
         X_train = scaler.fit_transform(X_train)
         X_test = scaler.transform(X_test)
-        
+
     else:
         raise NotImplementedError(f"Test case '{testcase}' not implemented")
-    
+
     input_size = X_train.shape[1]
     if len(y_train.shape) == 1:
         output_size = len(np.unique(y_train))
     else:
         output_size = y_train.shape[1]
     if not poisoned_patch:
-        X_train = load_X(X_train, x_how, input_size)
-        y_train = load_y(y_train, y_how, output_size)
+        X_train = load_X(X_train, x_how, input_size, noise_level=noise_level)
+        y_train = load_y(y_train, y_how, output_size, noise_level=noise_level)
     try:
         encoder = OneHotEncoder(sparse=False)
     except:
-        encoder = OneHotEncoder(sparse_output=False)  
+        encoder = OneHotEncoder(sparse_output=False)
     y_train_one_hot = encoder.fit_transform(y_train.reshape(-1, 1))
     y_test_one_hot = encoder.transform(y_test.reshape(-1, 1))
     return X_train, X_test, y_train_one_hot, y_test_one_hot, encoder
