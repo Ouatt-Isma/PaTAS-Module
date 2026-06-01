@@ -1,15 +1,25 @@
 import numpy as np
 from typing import Literal
 
+from patas_module.subjective_logic import (
+    averaging_fusion_vec,
+    cumulative_fusion_vec,
+    weighted_belief_fusion_vec,
+    multiply_vec,
+    deduce_vec,
+    discount_vec,
+    _normalize_vec,
+)
+
 # We assume base rate a=0.5 everywhere (your code asserts/uses this a lot).
 A0 = 0.5
 
 FuseMethod = Literal["average", "cumulative", "weighted"]
-fMethod = "weighted"  # default fuse method for TensorArrayTO; can be overridden per-instance
+fMethod = "average"  # default fuse method for TensorArrayTO; can be overridden per-instance
 
-def _normalize(v, eps=1e-12):
-    s = v.sum(axis=-1, keepdims=True)
-    return v / np.clip(s, eps, None)
+# Aliases so internal code can use the short names unchanged.
+_normalize = _normalize_vec
+normalize_tensor = _normalize_vec
 
 
 def check_valid(v, name="tensor", tol=1e-5):
@@ -55,24 +65,19 @@ def fill(shape, method="vacuous", dtype=np.float32):
 
 def discount(w, x):
     """
-    Vectorized version of TrustOpinion.discount where:
-    - w is the weight opinion (...,3) with (t,d,u)
-    - x is the input opinion (...,3)
-    Matches TrustOpinion.discount: p = t + u*a; t'=p*op2.t; d'=p*op2.d; u'=1-(t'+d')
+    Vectorized probability-sensitive trust discounting.
+    w : weight opinion (..., 3)  [b, d, u]
+    x : input opinion  (..., 3)
+    Delegates to subjective_logic.discount_vec (uses p = b_w + u_w·a).
     """
-    wt, wd, wu = w[..., 0], w[..., 1], w[..., 2]
-    xt, xd = x[..., 0], x[..., 1]
-    p = wt + wu * A0
-    t = p * xt
-    d = p * xd
-    u = 1.0 - (t + d)
-    out = np.stack([t, d, u], axis=-1)
-    return _normalize(out)
+    return discount_vec(w, x)
 
 
 def av_fuse_gen(opinions, axis=0):
     """
-    Vectorized TrustOpinion.avFuseGen over 'axis'
+    Arithmetic mean of opinion masses over `axis` (used for batch aggregation).
+    Not the SL ABF formula — this is an element-wise average, same as
+    TrustOpinion.avFuseGen.
     """
     m = opinions.mean(axis=axis)
     return _normalize(m)
@@ -80,118 +85,39 @@ def av_fuse_gen(opinions, axis=0):
 
 def av_fuse_pair(op1, op2):
     """
-    Vectorized TrustOpinion.avFuse (denom = u1+u2-u1*u2).
-    Falls back to arithmetic mean when both uncertainties are 0.
+    Vectorized 2-source Averaging Belief Fusion (ABF).
+    Delegates to subjective_logic.averaging_fusion_vec.
+    Formula: denom = u1+u2,  u = 2·u1·u2/denom.
     """
-    b1, d1, u1 = op1[..., 0], op1[..., 1], op1[..., 2]
-    b2, d2, u2 = op2[..., 0], op2[..., 1], op2[..., 2]
-
-    denom = (u1 + u2 - u1 * u2)
-    non_zero = denom != 0
-    safe_denom = np.where(non_zero, denom, 1.0)
-    b = np.where(non_zero, (b1 * u2 + b2 * u1) / safe_denom, 0.5 * (b1 + b2))
-    u = np.where(non_zero, (u1 * u2) / safe_denom, 0.0)
-    # clamp d >= 0: float32 rounding can push b+u just above 1.0
-    d = 1-b-u
-    # d = np.maximum(1.0 - u - b, 0.0)
-    # b = np.where(d == 0.0, 1.0 - u, b)  # re-align b when d was clamped
-    out = np.stack([b, d, u], axis=-1)
-    return _normalize(out)
+    return averaging_fusion_vec(op1, op2)
 
 
 def cum_fuse_pair(op1, op2):
     """
-    Vectorized TrustOpinion.cumFuse.
-
-    Same b/u formula as av_fuse_pair, but adds:
-      - d clamped to max(0, 1 - b - u)  (mirrors the scalar cumFuse guard)
-      - b adjusted to 1 - u when d would have gone negative
-
-    Base rate a is fixed at A0=0.5, so the dynamic-a branch collapses
-    to the constant and has no effect on (b, d, u).
+    Vectorized 2-source aleatory Cumulative Belief Fusion (CBF).
+    Delegates to subjective_logic.cumulative_fusion_vec.
+    Formula: denom = u1+u2−u1·u2,  u = u1·u2/denom.
     """
-    b1, d1, u1 = op1[..., 0], op1[..., 1], op1[..., 2]
-    b2, d2, u2 = op2[..., 0], op2[..., 1], op2[..., 2]
+    return cumulative_fusion_vec(op1, op2)
 
-    denom = u1 + u2 - u1 * u2
-    both_certain = (denom == 0)
-
-    b = np.where(both_certain, 0.5 * (b1 + b2), (b1 * u2 + b2 * u1) / np.where(both_certain, 1.0, denom))
-    u = np.where(both_certain, 0.0,              (u1 * u2)            / np.where(both_certain, 1.0, denom))
-
-    # cumFuse clamp: d must be >= 0; if not, cap b at 1-u
-    d_raw = 1.0 - b - u
-    d = np.maximum(d_raw, 0.0)
-    b = np.where(d_raw < 0.0, 1.0 - u, b)   # adjust b when d was clamped
-
-    out = np.stack([b, d, u], axis=-1)
-    return _normalize(out)
 
 def weighted_fuse_pair(op1, op2):
     """
-    Vectorized TrustOpinion.weighted_belief_fusion.
-
-    Three cases (matching the scalar implementation exactly):
-      Case I:  at least one uncertainty != 0, and not both == 1
-               b = (b1*(1-u1)*u2 + b2*(1-u2)*u1) / (u1 + u2)
-               u = (2-u1-u2)*u1*u2 / (u1 + u2 - 2*u1*u2)
-               a = (a1*(1-u1) + a2*(1-u2)) / 2   [collapsed to A0 below]
-
-      Case II: both uncertainties == 0
-               b = 0.5*(b1+b2), u = 0
-
-      Case III: both uncertainties == 1
-               b = 0, u = 1
-
-    Since A0 is fixed at 0.5, the base-rate output has no effect on (b,d,u),
-    so it is not stored. d = 1 - b - u (clamped to 0 like cumFuse).
+    Vectorized 2-source Weighted Belief Fusion (WBF).
+    Delegates to subjective_logic.weighted_belief_fusion_vec.
     """
-    b1, d1, u1 = op1[..., 0], op1[..., 1], op1[..., 2]
-    b2, d2, u2 = op2[..., 0], op2[..., 1], op2[..., 2]
+    return weighted_belief_fusion_vec(op1, op2)
 
-    both_zero = (u1 == 0) & (u2 == 0)        # Case II
-    both_one  = (u1 == 1) & (u2 == 1)        # Case III
-    case_i    = ~both_zero & ~both_one        # Case I
-
-    # ---------- Case I numerators / denominators ----------
-    # Guard denominator against division by zero outside Case I
-    denom_b = np.where(case_i, u1 + u2,               1.0)
-    denom_u = np.where(case_i, u1 + u2 - 2*u1*u2,    1.0)
-
-    b_i = (b1*(1-u1)*u2 + b2*(1-u2)*u1) / denom_b
-    u_i = (2 - u1 - u2) * u1 * u2 / denom_u
-
-    # ---------- Case II ----------
-    b_ii = 0.5 * (b1 + b2)
-    u_ii = np.zeros_like(u1)
-
-    # ---------- Case III ----------
-    b_iii = np.zeros_like(b1)
-    u_iii = np.ones_like(u1)
-
-    # ---------- Select ----------
-    b = np.where(both_zero, b_ii,
-        np.where(both_one,  b_iii, b_i))
-    u = np.where(both_zero, u_ii,
-        np.where(both_one,  u_iii, u_i))
-
-    # Clamp d >= 0 (same guard as cumFuse)
-    d_raw = 1.0 - b - u
-    d = np.maximum(d_raw, 0.0)
-    b = np.where(d_raw < 0.0, 1.0 - u, b)
-
-    return _normalize(np.stack([b, d, u], axis=-1))
 
 def fuse_pair(op1, op2, method: FuseMethod = fMethod):
     """
-    Dispatch to av_fuse_pair or cum_fuse_pair based on `method`.
+    Dispatch to av_fuse_pair, cum_fuse_pair, or weighted_fuse_pair.
 
     Parameters
     ----------
     op1, op2 : ndarray (..., 3)
-    method   : "average" | "cumulative"
+    method   : "average" | "cumulative" | "weighted"
     """
-    # print(f"Fusing opinions with method={method}")
     if method == "average":
         return av_fuse_pair(op1, op2)
     elif method == "cumulative":
@@ -199,51 +125,36 @@ def fuse_pair(op1, op2, method: FuseMethod = fMethod):
     elif method == "weighted":
         return weighted_fuse_pair(op1, op2)
     else:
-        raise ValueError(f"Unknown fuse method: {method!r}. Choose 'average' or 'cumulative'.")
+        raise ValueError(f"Unknown fuse method: {method!r}. Choose 'average', 'cumulative', or 'weighted'.")
 
 
 def bin_mult(op1, op2):
     """
-    Vectorized TrustOpinion.binMult (base-rates assumed 0.5)
-    op1/op2 (...,3)
+    Vectorized binomial multiplication ⊙ (base rates assumed 0.5).
+    Delegates to subjective_logic.multiply_vec.
+    op1, op2 : (..., 3)
     """
-    t1, d1, u1 = op1[..., 0], op1[..., 1], op1[..., 2]
-    t2, d2, u2 = op2[..., 0], op2[..., 1], op2[..., 2]
-    a1 = A0; a2 = A0
-
-    denom = (1.0 - a1 * a2)  # = 0.75
-    t = t1 * t2 + (((1-a1)*a2*t1*u2 + (1-a2)*a1*t2*u1) / denom)
-    d = d1 + d2 - d1 * d2
-    u = u1 * u2 + (((1-a1)*t2*u1 + (1-a2)*t1*u2) / denom)
-
-    out = np.stack([t, d, u], axis=-1)
-    return _normalize(out)
+    return multiply_vec(op1, op2)
 
 
 def fast_deduction(op_x, op_y_given_x, op_y_given_not_x):
     """
-    FAST APPROX DEDUCTION (vectorized):
-    - exact when op_x is fully trust or fully distrust (matches your early returns)
-    - otherwise blend using projected probability ex = t + a*u
-
-    This replaces the very branch-heavy TrustOpinion.deduction with a tensor-friendly version.
+    Vectorized approximate inferential deduction.
+    - Exact when op_x is fully trust or fully distrust (early-exit cases).
+    - Otherwise blends via projected probability, delegating to
+      subjective_logic.deduce_vec.
     """
-    xt, xd, xu = op_x[..., 0], op_x[..., 1], op_x[..., 2]
-    ex = xt + A0 * xu  # projected prob
-
-    # handle extremes exactly like your deduction() early exit
+    xt = op_x[..., 0]
+    xd = op_x[..., 1]
     is_trust = (np.round(xt, 3) == 1.0)
     is_distr = (np.round(xd, 3) == 1.0)
-
-    blended = ex[..., None] * op_y_given_x + (1.0 - ex[..., None]) * op_y_given_not_x
-    out = np.where(is_trust[..., None], op_y_given_x,
-          np.where(is_distr[..., None], op_y_given_not_x, blended))
-    return _normalize(out)
+    blended = deduce_vec(op_x, op_y_given_x, op_y_given_not_x)
+    return np.where(is_trust[..., None], op_y_given_x,
+           np.where(is_distr[..., None], op_y_given_not_x, blended))
 
 
 def normalize_tensor(op, eps=1e-12):
-    s = op.sum(axis=-1, keepdims=True)
-    return op / np.clip(s, eps, None)
+    return _normalize_vec(op, eps)
 
 
 def theta_given_y(delta, epsilon_low, dtype=np.float32):
