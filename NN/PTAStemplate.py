@@ -179,13 +179,15 @@ class PTAS:
                         message_obj = pickle.loads(data)
                         self.process_data(message_obj)
 
-    def run_chunk(self, host='127.0.0.1', chunk_size=CHUNK_SIZE):
+    def run_chunk(self, host='127.0.0.1', chunk_size=CHUNK_SIZE, ready_event=None):
         port = self.nn_interface.port_number
         # Establish a socket connection
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((host, port))
             s.listen(1)
+            if ready_event is not None:
+                ready_event.set()
             if(DEBUG>=0):
                 print("[CHUNK] Waiting for a connection...")
                 print()
