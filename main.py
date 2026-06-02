@@ -508,9 +508,28 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
     )
     os.makedirs(datapath, exist_ok=True)
     nn_model_path = os.path.join(datapath, "nn_model.pkl")
-    model_cached = os.path.exists(nn_model_path) and not force_retrain
+    metrics_path  = os.path.join(datapath, "metrics.txt")
+    # Require metrics.txt alongside nn_model.pkl: a model saved without metrics
+    # (e.g. when a previous run was interrupted before plot=True wrote the file)
+    # should trigger a full retrain rather than returning NaN from a missing file.
+    model_cached = (
+        not force_retrain
+        and os.path.exists(nn_model_path)
+        and os.path.exists(metrics_path)
+    )
     if model_cached:
         print(f"[NN] Saved model found — loading from {nn_model_path}, skipping training.")
+
+    # When PTAS omega is already cached, start_ptas never binds a socket.
+    # Disable PTAS communication in the NN so training always completes and
+    # metrics.txt is written, and to skip the useless gradient-stream replay.
+    ptas_omega_path = os.path.join(
+        f"results/PTAS_Eval_{cfg.dataset}_{arch_str}_{cfg.x_trust}_{cfg.y_trust}"
+        f"_eps_{cfg.epsilon_low}"
+        f"_PathSize_{cfg.mnist_patch_size if cfg.mnist_poisoned_soph else 'None'}",
+        "omega_arrays.pkl",
+    )
+    ptas_omega_cached = not force_retrain and os.path.exists(ptas_omega_path)
 
     hidden_size2 = hidden_list[1] if len(hidden_list) > 1 else None
     nn = NeuralNetwork(
@@ -518,7 +537,7 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
         cfg.hidden_dim,
         output_size,
         hidden_size2=hidden_size2,
-        ptas=False if not_ptas else True,
+        ptas=not not_ptas and not ptas_omega_cached,
         operation=True,
         port=cfg.port,
     )
@@ -547,8 +566,9 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
             with open(nn_model_path, "rb") as _f:
                 weights = _pkl.load(_f)
             nn.W1, nn.b1, nn.W2, nn.b2 = weights["W1"], weights["b1"], weights["W2"], weights["b2"]
-            if not not_ptas:
-                # Replay training from cached weights to feed gradient stream to PTAS
+            if not not_ptas and not ptas_omega_cached:
+                # Replay training to feed gradient stream to PTAS
+                # (skipped when PTAS omega is already cached — no socket is bound)
                 nn.train(
                     X_train, y_train, X_test, y_test,
                     epochs=cfg.epochs, batch_size=cfg.batch_size,
@@ -579,8 +599,9 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
             nn.W1, nn.b1, nn.W2, nn.b2 = weights["W1"], weights["b1"], weights["W2"], weights["b2"]
             if hidden_size2 is not None and "W3" in weights:
                 nn.W3, nn.b3 = weights["W3"], weights["b3"]
-            if not not_ptas:
-                # Replay training from cached weights to feed gradient stream to PTAS
+            if not not_ptas and not ptas_omega_cached:
+                # Replay training to feed gradient stream to PTAS
+                # (skipped when PTAS omega is already cached — no socket is bound)
                 nn.train(
                     X_train, y_train, X_test, y_test,
                     epochs=cfg.epochs, batch_size=cfg.batch_size,
