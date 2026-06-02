@@ -122,7 +122,10 @@ class NeuralNetwork:
                 ]
                 if self.ptas:
                     obj = MessageObject(Mode.INFERENCE, {"X": X, "inference_path": activated_neurons})
-                    self.send_in_chunks(obj)
+                    try:
+                        self.send_in_chunks(obj)
+                    except Exception:
+                        pass
                 return self.a3, activated_neurons
             return self.a3
         else:
@@ -132,7 +135,10 @@ class NeuralNetwork:
                 activated_neurons = (self.a1 > 0).astype(int).tolist()
                 if self.ptas:
                     obj = MessageObject(Mode.INFERENCE, {"X": X, "inference_path": activated_neurons})
-                    self.send_in_chunks(obj)
+                    try:
+                        self.send_in_chunks(obj)
+                    except Exception:
+                        pass
                 return self.a2, activated_neurons
             return self.a2
 
@@ -469,7 +475,10 @@ class NeuralNetwork:
     def end(self):
         if self.ptas:
             obj = MessageObject(Mode.END)
-            self.send_in_chunks(obj)
+            try:
+                self.send_in_chunks(obj)
+            except Exception:
+                pass
             self._close_ptas_socket()
 
     def predict_bin(self, X):
@@ -488,8 +497,13 @@ class NeuralNetwork:
     def _ensure_ptas_socket(self, host='127.0.0.1'):
         if getattr(self, "_ptas_socket", None) is not None:
             return self._ptas_socket
-        self._ptas_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._ptas_socket.connect((host, self.port))
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.connect((host, self.port))
+        except Exception:
+            s.close()
+            raise
+        self._ptas_socket = s
         return self._ptas_socket
 
     def _close_ptas_socket(self):
