@@ -151,9 +151,7 @@ class NeuralNetwork:
             dW3 = np.dot(self.a2.T, dz3) / m
             db3 = np.sum(dz3, axis=0, keepdims=True) / m
             if self.ptas:
-                dW3 = dW3.astype(np.float32, copy=False)
-                db3 = db3.astype(np.float32, copy=False)
-                obj = MessageObject(Mode.TRAINING_BACKPROPAGATION, {"y_true": y_true, "delta_W": dW3, "delta_b": db3}, epoch, ind_batch, _layer=2)
+                obj = MessageObject(Mode.TRAINING_BACKPROPAGATION, {"y_true": y_true, "delta_W": dW3.astype(np.float32), "delta_b": db3.astype(np.float32)}, epoch, ind_batch, _layer=2)
                 self.send_in_chunks(obj)
 
             da2 = np.dot(dz3, self.W3.T)
@@ -165,9 +163,7 @@ class NeuralNetwork:
             dW2 = np.dot(self.a1.T, dz2) / m
             db2 = np.sum(dz2, axis=0, keepdims=True) / m
             if self.ptas:
-                dW2 = dW2.astype(np.float32, copy=False)
-                db2 = db2.astype(np.float32, copy=False)
-                obj = MessageObject(Mode.TRAINING_BACKPROPAGATION, {"y_true": y_true, "delta_W": dW2, "delta_b": db2}, epoch, ind_batch, _layer=1)
+                obj = MessageObject(Mode.TRAINING_BACKPROPAGATION, {"y_true": y_true, "delta_W": dW2.astype(np.float32), "delta_b": db2.astype(np.float32)}, epoch, ind_batch, _layer=1)
                 self.send_in_chunks(obj)
 
             da1 = np.dot(dz2, self.W2.T)
@@ -179,9 +175,7 @@ class NeuralNetwork:
             dW1 = np.dot(X.T, dz1) / m
             db1 = np.sum(dz1, axis=0, keepdims=True) / m
             if self.ptas:
-                dW1 = dW1.astype(np.float32, copy=False)
-                db1 = db1.astype(np.float32, copy=False)
-                obj = MessageObject(Mode.TRAINING_BACKPROPAGATION, {"y_true": y_true, "delta_W": dW1, "delta_b": db1}, epoch, ind_batch, _layer=0)
+                obj = MessageObject(Mode.TRAINING_BACKPROPAGATION, {"y_true": y_true, "delta_W": dW1.astype(np.float32), "delta_b": db1.astype(np.float32)}, epoch, ind_batch, _layer=0)
                 self.send_in_chunks(obj)
 
             self.W1 -= learning_rate * dW1
@@ -201,9 +195,7 @@ class NeuralNetwork:
             dW2 = np.dot(self.a1.T, dz2) / m
             db2 = np.sum(dz2, axis=0, keepdims=True) / m
             if self.ptas:
-                dW2 = dW2.astype(np.float32, copy=False)
-                db2 = db2.astype(np.float32, copy=False)
-                obj = MessageObject(Mode.TRAINING_BACKPROPAGATION, {"y_true": y_true, "delta_W": dW2, "delta_b": db2}, epoch, ind_batch, _layer=1)
+                obj = MessageObject(Mode.TRAINING_BACKPROPAGATION, {"y_true": y_true, "delta_W": dW2.astype(np.float32), "delta_b": db2.astype(np.float32)}, epoch, ind_batch, _layer=1)
                 self.send_in_chunks(obj)
 
             da1 = np.dot(dz2, self.W2.T)
@@ -215,9 +207,7 @@ class NeuralNetwork:
             dW1 = np.dot(X.T, dz1) / m
             db1 = np.sum(dz1, axis=0, keepdims=True) / m
             if self.ptas:
-                dW1 = dW1.astype(np.float32, copy=False)
-                db1 = db1.astype(np.float32, copy=False)
-                obj = MessageObject(Mode.TRAINING_BACKPROPAGATION, {"y_true": y_true, "delta_W": dW1, "delta_b": db1}, epoch, ind_batch, _layer=0)
+                obj = MessageObject(Mode.TRAINING_BACKPROPAGATION, {"y_true": y_true, "delta_W": dW1.astype(np.float32), "delta_b": db1.astype(np.float32)}, epoch, ind_batch, _layer=0)
                 self.send_in_chunks(obj)
 
             self.W1 -= learning_rate * dW1
