@@ -292,21 +292,25 @@ class TensorArrayTO:
         B: (K, J, 3)
         Output: (batch, J, 3)
 
-        fuse_method is inherited from A.
+        Equivalent to mean_k discount(B[k,j], A[b,k]) but uses two matmuls
+        instead of a (batch,K,J,3) intermediate tensor.
+
+        discount(w, a) = (p*b_a, p*d_a, 1 - p*(b_a+d_a))  where p = b_w + 0.5*u_w
+        av_fuse_gen over k = arithmetic mean, which distributes over the linear terms.
         """
-        a = A.value
-        w = B.value
+        a = A.value   # (batch, K, 3)
+        w = B.value   # (K, J, 3)
 
-        # broadcast to (batch, K, J, 3)
-        a4 = a[:, :, None, :]
-        w4 = w[None, :, :, :]
+        # Projected probability of each weight: p_kj = b_kj + 0.5 * u_kj  →  (K, J)
+        p = w[..., 0] + 0.5 * w[..., 2]
 
-        # discount each weight by corresponding input opinion: (batch,K,J,3)
-        dw = discount(w4, a4)
-
-        # fuse across K (mean fusion like your TrustOpinion.add/avFuseGen)
-        out = av_fuse_gen(dw, axis=1)
-        return TensorArrayTO(out, fuse_method=A.fuse_method)
+        # mean_k(p_kj * a_bk[c]) = (a[...,c] @ p) / K  for c in {belief, disbelief}
+        K = a.shape[1]
+        b_out = (a[..., 0] @ p) / K   # (batch, J)
+        d_out = (a[..., 1] @ p) / K   # (batch, J)
+        u_out = np.clip(1.0 - b_out - d_out, 0.0, None)
+        out = np.stack([b_out, d_out, u_out], axis=-1)  # (batch, J, 3)
+        return TensorArrayTO(_normalize_vec(out), fuse_method=A.fuse_method)
 
     def update(self, prev: "TensorArrayTO", lr: np.ndarray):
         """
