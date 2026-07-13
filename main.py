@@ -10,7 +10,7 @@ import multiprocessing
 import time
 from NN.datasets import mnist_get_inverse_scaling, mnist_get_scaling
 from NN.utils import writeto
-from concrete.TensorTO import TensorArrayTO
+from concrete.TensorTO import TensorArrayTO, fill as tfill, as_tensor, to_numpy
 
 # Ensure repository root is on import path
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -82,17 +82,36 @@ lr_mnist = 0.05
 def get_lr_mnist(epoch):
     return lr_mnist
 
+lr_gtsrb = 0.05
+def get_lr_gtsrb(epoch):
+    return lr_gtsrb
+
 
 
 TEST_CASES: dict[str, TestCaseConfig] = {
     "mnist": TestCaseConfig(dataset="mnist", input_dim=28 * 28, output_dim=10, hidden_dim=128,
-                             epochs=20, batch_size=128, learning_rate=get_lr_mnist, 
+                             epochs=20, batch_size=128, learning_rate=get_lr_mnist,
                              epsilon_low=0.05, epsilon_up=None),
-    "cancer": TestCaseConfig(dataset="cancer", input_dim=30, output_dim=2, hidden_dim=16, 
+    "cancer": TestCaseConfig(dataset="cancer", input_dim=30, output_dim=2, hidden_dim=16,
                              epochs=15, batch_size=64, learning_rate=get_lr_cancer, epsilon_low=1e-1, epsilon_up=None, no_round=None),
+    "gtsrb": TestCaseConfig(dataset="gtsrb", input_dim=32 * 32, output_dim=43, hidden_dim=128,
+                             epochs=20, batch_size=128, learning_rate=get_lr_gtsrb,
+                             epsilon_low=0.05, epsilon_up=None),
     # cifar10 script in this repo currently uses binary classification (2 classes)
     # "cifar10grey": TestCaseConfig(dataset="cifar10", input_dim=32 * 32 * 3, output_dim=2, hidden_dim=64),
-    # "gtsrbgrey": TestCaseConfig(dataset="gtsrb", input_dim=32 * 32, output_dim=43, hidden_dim=64),
+}
+
+
+# Per-dataset facts needed by the poisoned-backdoor machinery.
+#   img_size      : square image side (input_dim = img_size²)
+#   scale_patch   : maps a raw patch value (1.0) into the dataset's pixel scale
+#   pois_pair     : the two classes whose labels are swapped by the backdoor
+#   control_class : a clean class used as a no-backdoor control at evaluation
+DATASET_META: dict[str, dict] = {
+    "mnist": {"img_size": 28, "scale_patch": mnist_get_scaling,
+              "output_dim": 10, "pois_pair": (6, 9), "control_class": 3},
+    "gtsrb": {"img_size": 32, "scale_patch": lambda v: v,   # GTSRB pixels are raw [0,1]
+              "output_dim": 43, "pois_pair": (6, 9), "control_class": 3},
 }
 
 
@@ -228,53 +247,74 @@ def build_trust_generator(spec: str, dtype=np.float32):
         f"Unsupported trust spec '{spec}'. Use trust/distrust/vacuous/random or a triplet t,d,u"
     )
 
-def _check_patch(sample: np.ndarray, patch_size: int, img_size: int = 28, patch_value: float = 1.0) -> bool:
+def _check_patch(sample: np.ndarray, patch_size: int, img_size: int = 28,
+                 patch_value: float = 1.0, scale_patch=None) -> bool:
     from NN.datasets import mnist_get_scaling
+    if scale_patch is None:
+        scale_patch = mnist_get_scaling
     x = sample.reshape(img_size, img_size)
-    scaled = mnist_get_scaling(patch_value)
+    scaled = scale_patch(patch_value)
     return np.allclose(x[:patch_size, :patch_size], scaled, atol=1e-2)
 
 
-def build_mnist_poisoned_soph_generator(patch_size: int) -> TrustGen:
+def build_poisoned_soph_generator(patch_size: int, dataset: str = "mnist") -> TrustGen:
+    """
+    Poisoned-aware trust generator for backdoored datasets (MNIST or GTSRB).
+
+    Input trust : all pixels trusted, except the trigger-patch pixels of
+                  poisoned training samples, which are distrusted.
+    Output trust: high-but-uncertain trust for all classes; the two swapped
+                  classes are distrusted for samples whose true label is one
+                  of them.
+    """
     if patch_size <= 0:
-        raise ValueError("--mnist-patch-size must be > 0")
+        raise ValueError("patch size must be > 0")
+    meta = DATASET_META[dataset]
+    img_size = meta["img_size"]
+    scale_patch = meta["scale_patch"]
+    pois_a, pois_b = meta["pois_pair"]
 
-    from NN.datasets import load_mnist, load_poisoned_mnist
+    if dataset == "mnist":
+        from NN.datasets import load_mnist, load_poisoned_mnist
+        x_train, _, y_train, _ = load_mnist()
+        x_train, y_train, _ = load_poisoned_mnist(x_train, y_train, patch_size=patch_size)
+    else:
+        from NN.datasets import load_gtsrb, load_poisoned_gtsrb
+        x_train, _, y_train, _ = load_gtsrb()
+        x_train, y_train, _ = load_poisoned_gtsrb(x_train, y_train, patch_size=patch_size)
 
-    x_train, _, y_train, _ = load_mnist()
-    x_train, y_train, _ = load_poisoned_mnist(x_train, y_train, patch_size=patch_size)
-    input_dim_mnist = 28 * 28
-    output_dim_mnist = 10
+    input_dim = img_size * img_size
+    output_dim = meta["output_dim"]
 
     def _gen(x: np.ndarray, dim: int) -> TensorArrayTO:
         n = len(x)
 
-        if dim == input_dim_mnist:
+        if dim == input_dim:
             tensor = np.zeros((n, dim, 3), dtype=np.float32)
             tensor[..., 0] = 1.0  # default: trust all pixels
             for t in range(n):
-                if _check_patch(x_train[int(x[t])], patch_size):
+                if _check_patch(x_train[int(x[t])], patch_size,
+                                img_size=img_size, scale_patch=scale_patch):
                     for i in range(patch_size):
                         for j in range(patch_size):
-                            tensor[t, 28 * i + j, 0] = 0.0
-                            tensor[t, 28 * i + j, 1] = 1.0
+                            tensor[t, img_size * i + j, 0] = 0.0
+                            tensor[t, img_size * i + j, 1] = 1.0
             return TensorArrayTO(tensor)
 
-        if dim == output_dim_mnist:
+        if dim == output_dim:
             # Default: high-but-uncertain trust for all classes (u>0 damps noise)
             tensor = np.zeros((n, dim, 3), dtype=np.float32)
             tensor[..., 0] = 0.9
             tensor[..., 2] = 0.1
-            # Distrust class 6 and 9 outputs ONLY for samples whose true label is 6 or 9.
+            # Distrust the swapped-class outputs ONLY for samples whose true
+            # label is one of the swapped classes.
             indices = np.argwhere(x == 1)
-            filtered = indices[np.isin(indices[:, 1], [6, 9])]
+            filtered = indices[np.isin(indices[:, 1], [pois_a, pois_b])]
             for i in filtered[:, 0]:
-                tensor[i, 6, 0] = 0.0
-                tensor[i, 6, 1] = 0.9
-                tensor[i, 6, 2] = 0.1
-                tensor[i, 9, 0] = 0.0
-                tensor[i, 9, 1] = 0.9
-                tensor[i, 9, 2] = 0.1
+                for c in (pois_a, pois_b):
+                    tensor[i, c, 0] = 0.0
+                    tensor[i, c, 1] = 0.9
+                    tensor[i, c, 2] = 0.1
             return TensorArrayTO(tensor)
 
         # fallback: vacuous [0, 0, 1]
@@ -283,6 +323,11 @@ def build_mnist_poisoned_soph_generator(patch_size: int) -> TrustGen:
         return TensorArrayTO(tensor)
 
     return _gen
+
+
+def build_mnist_poisoned_soph_generator(patch_size: int) -> TrustGen:
+    """Backward-compatible alias for the MNIST poisoned trust generator."""
+    return build_poisoned_soph_generator(patch_size, dataset="mnist")
 
 
 class TeeLogger:
@@ -305,9 +350,9 @@ class TeeLogger:
 
 
 def format_value(obj):
-    """Resolve TensorArrayTO objects to their .value ndarray for display."""
-    if hasattr(obj, "value") and isinstance(obj.value, np.ndarray):
-        return repr(obj.value)
+    """Resolve TensorArrayTO objects to their .value array (numpy or torch) for display."""
+    if hasattr(obj, "value"):
+        return repr(to_numpy(obj.value))
     return repr(obj)
 
 
@@ -317,41 +362,28 @@ def ptas_evaluation(ptas: PTAS, input_dim: int, datapath: str):
     sys.stdout = logger
 
     try:
-        print("--------------------------- 0 0 0 ----------------------")
-        print(ptas.omega_thetas[0].get_shape())
-        print(format_value(ptas.omega_thetas[0]))
-        print("-------------------------------------------------")
-        print()
+        for i, ot in enumerate(ptas.omega_thetas):
+            print(f"--------------------------- omega[{i}] ----------------------")
+            print(ot.get_shape())
+            print(format_value(ot))
+            print("-------------------------------------------------")
+            print()
 
-        print("--------------------------- 1 1 1 ----------------------")
-        print(ptas.omega_thetas[1].get_shape())
-        print(format_value(ptas.omega_thetas[1]))
-        print("-------------------------------------------------")
-        print()
-
-        print("Apply Feed Forward on fully Trusted Input")
-        a = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="trust")))
-        print(format_value(a))
-        print("Aggregated Value: ", PTAS.aggregation(a))
-        print()
-        writeto(a, datapath + "\\at.pkl")
-
-        print("Apply Feed Forward on Vacuous Input")
-        a = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="vacuous")))
-        print(format_value(a))
-        print("Aggregated Value: ", PTAS.aggregation(a))
-        print()
-        writeto(a, datapath + "\\av.pkl")
-
-        print("Apply Feed Forward on fully Untrusted Input")
-        a = ptas.apply_feedforward(ArrayTO(TrustOpinion.fill((1, input_dim), method="distrust")))
-        print(format_value(a))
-        print("Aggregated Value: ", PTAS.aggregation(a))
-        print()
-        writeto(a, datapath + "\\ad.pkl")
+        for label, method, out_name in (
+            ("fully Trusted", "trust", "at.pkl"),
+            ("Vacuous", "vacuous", "av.pkl"),
+            ("fully Untrusted", "distrust", "ad.pkl"),
+        ):
+            print(f"Apply Feed Forward on {label} Input")
+            a = ptas.apply_feedforward(TensorArrayTO(tfill((1, input_dim), method=method)))
+            print(format_value(a))
+            print("Aggregated Value: ", to_numpy(PTAS.aggregation(a)))
+            print()
+            # store as numpy so the pickle loads on machines without a GPU
+            writeto(TensorArrayTO(a.to_numpy()), datapath + f"\\{out_name}")
 
         # Save omega_arrays so they can be reloaded without retraining
-        writeto([ot.value.copy() for ot in ptas.omega_thetas],
+        writeto([ot.to_numpy().copy() for ot in ptas.omega_thetas],
                 datapath + "\\omega_arrays.pkl")
 
     finally:
@@ -387,9 +419,9 @@ def start_ptas(cfg, ready_event=None, post_training_callback=None, force_retrain
     print("patch size (MNIST poison):", cfg.mnist_patch_size if cfg.mnist_poisoned_soph else "N/A")
     print("PTAS Port:", cfg.port)
 
-    if cfg.dataset == "mnist" and cfg.mnist_poisoned_soph:
-        print("Using poisoned-aware trust generator for MNIST with patch size", cfg.mnist_patch_size)
-        trust_assessment = build_mnist_poisoned_soph_generator(mnist_patch_size)
+    if cfg.dataset in DATASET_META and cfg.mnist_poisoned_soph:
+        print(f"Using poisoned-aware trust generator for {cfg.dataset} with patch size", cfg.mnist_patch_size)
+        trust_assessment = build_poisoned_soph_generator(mnist_patch_size, dataset=cfg.dataset)
     else:
         x_gen = build_trust_generator(cfg.x_trust)
         y_gen = build_trust_generator(cfg.y_trust)
@@ -402,7 +434,7 @@ def start_ptas(cfg, ready_event=None, post_training_callback=None, force_retrain
                 return y_gen(n, dim)
 
     omega_thetas = [
-        ArrayTO(TrustOpinion.fill(shape=(all_dims[i] + 1, all_dims[i + 1]), method="vacuous"))
+        TensorArrayTO(tfill((all_dims[i] + 1, all_dims[i + 1]), method="vacuous"))
         for i in range(len(all_dims) - 1)
     ]
 
@@ -438,9 +470,8 @@ def start_ptas(cfg, ready_event=None, post_training_callback=None, force_retrain
             )
             os.remove(omega_path)
         else:
-            from concrete.TensorTO import TensorArrayTO
             for i, arr in enumerate(omega_arrays):
-                ptas.omega_thetas[i] = TensorArrayTO(arr)
+                ptas.omega_thetas[i] = TensorArrayTO(as_tensor(arr, device=ptas.device))
             if ready_event is not None:
                 ready_event.set()
             if post_training_callback is not None:
@@ -531,12 +562,10 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
     )
     ptas_omega_cached = not force_retrain and os.path.exists(ptas_omega_path)
 
-    hidden_size2 = hidden_list[1] if len(hidden_list) > 1 else None
     nn = NeuralNetwork(
         input_size,
-        cfg.hidden_dim,
-        output_size,
-        hidden_size2=hidden_size2,
+        hidden_sizes=hidden_list,
+        output_size=output_size,
         ptas=not not_ptas and not ptas_omega_cached,
         operation=True,
         port=cfg.port,
@@ -545,27 +574,31 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
     if cfg.mnist_poisoned_soph:
         from NN.datasets import add_trigger_patch
 
-        scaled_patch = mnist_get_scaling(1.0)
+        meta = DATASET_META[cfg.dataset]
+        img_size = meta["img_size"]
+        pois_class = meta["pois_pair"][0]      # class whose patched samples should flip
+        ctrl_class = meta["control_class"]     # clean control class (no backdoor trained)
+        scaled_patch = meta["scale_patch"](1.0)
         y_test_one_hot = y_test
-        ids_6 = np.where(np.argmax(y_test_one_hot, axis=1) == 6)[0]
-        ids_3 = np.where(np.argmax(y_test_one_hot, axis=1) == 3)[0]
+        ids_6 = np.where(np.argmax(y_test_one_hot, axis=1) == pois_class)[0]
+        ids_3 = np.where(np.argmax(y_test_one_hot, axis=1) == ctrl_class)[0]
 
-        print(f"Number of 6: {len(ids_6)}")
-        print(f"Number of 3: {len(ids_3)}")
+        print(f"Number of {pois_class}: {len(ids_6)}")
+        print(f"Number of {ctrl_class}: {len(ids_3)}")
 
         pois_X_test_6 = np.empty((len(ids_6), *X_test.shape[1:]), dtype=X_test.dtype)
         pois_X_test_3 = np.empty((len(ids_3), *X_test.shape[1:]), dtype=X_test.dtype)
 
         for out_i, in_i in enumerate(ids_6):
-            pois_X_test_6[out_i] = add_trigger_patch(X_test[in_i], patch_value=scaled_patch, patch_size=cfg.mnist_patch_size)
+            pois_X_test_6[out_i] = add_trigger_patch(X_test[in_i], patch_value=scaled_patch,
+                                                     patch_size=cfg.mnist_patch_size, img_size=img_size)
 
         for out_i, in_i in enumerate(ids_3):
-            pois_X_test_3[out_i] = add_trigger_patch(X_test[in_i], patch_value=scaled_patch, patch_size=cfg.mnist_patch_size)
+            pois_X_test_3[out_i] = add_trigger_patch(X_test[in_i], patch_value=scaled_patch,
+                                                     patch_size=cfg.mnist_patch_size, img_size=img_size)
 
         if model_cached:
-            with open(nn_model_path, "rb") as _f:
-                weights = _pkl.load(_f)
-            nn.W1, nn.b1, nn.W2, nn.b2 = weights["W1"], weights["b1"], weights["W2"], weights["b2"]
+            nn.load_model(nn_model_path)
             if not not_ptas and not ptas_omega_cached:
                 # Replay training to feed gradient stream to PTAS
                 # (skipped when PTAS omega is already cached — no socket is bound)
@@ -590,37 +623,27 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
                 X_pois_3=pois_X_test_3,
                 X_pois_6=pois_X_test_6,
             )
-            with open(nn_model_path, "wb") as _f:
-                _pkl.dump({"W1": nn.W1, "b1": nn.b1, "W2": nn.W2, "b2": nn.b2}, _f)
+            nn.save_model(nn_model_path)
     else:
         if model_cached:
-            with open(nn_model_path, "rb") as _f:
-                weights = _pkl.load(_f)
-            nn.W1, nn.b1, nn.W2, nn.b2 = weights["W1"], weights["b1"], weights["W2"], weights["b2"]
-            if hidden_size2 is not None and "W3" in weights:
-                nn.W3, nn.b3 = weights["W3"], weights["b3"]
+            nn.load_model(nn_model_path)
             if not not_ptas and not ptas_omega_cached:
                 # Replay training to feed gradient stream to PTAS
                 # (skipped when PTAS omega is already cached — no socket is bound)
                 nn.train(
                     X_train, y_train, X_test, y_test,
                     epochs=cfg.epochs, batch_size=cfg.batch_size,
-                    lr_scheduler=cfg.learning_rate, plot=False,
+                    lr_scheduler=cfg.learning_rate, plot=False, shuffle=True,
                     fname=datapath,
                 )
         else:
             nn.train(
                 X_train, y_train, X_test, y_test,
                 epochs=cfg.epochs, batch_size=cfg.batch_size,
-                lr_scheduler=cfg.learning_rate, plot=True,
+                lr_scheduler=cfg.learning_rate, plot=True, shuffle=True,
                 fname=datapath,
             )
-            model_dict = {"W1": nn.W1, "b1": nn.b1, "W2": nn.W2, "b2": nn.b2}
-            if hidden_size2 is not None:
-                model_dict["W3"] = nn.W3
-                model_dict["b3"] = nn.b3
-            with open(nn_model_path, "wb") as _f:
-                _pkl.dump(model_dict, _f)
+            nn.save_model(nn_model_path)
 
     print("X_train shape:", X_train.shape)
     predictions = nn.predict(X_train)

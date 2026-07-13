@@ -6,6 +6,7 @@ folder_path = f"{os.getcwd()}/"
 sys.path.append(folder_path)
 
 import numpy as np
+import torch
 
 from sklearn.preprocessing import OneHotEncoder
 
@@ -18,31 +19,50 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 np.random.seed(42)
+torch.manual_seed(42)
 DEBUG = False
+
+
+# ------------------------------------------------------------------ #
+# Activation functions — accept numpy arrays (legacy callers such as
+# eval_5g_noise.py / eval_chapter.py) or torch tensors (NeuralNetwork).
+# ------------------------------------------------------------------ #
 
 def binary_activation(x):
     """Binary step activation (+1 / -1)"""
+    if isinstance(x, torch.Tensor):
+        return torch.where(x >= 0, 1.0, -1.0)
     return np.where(x >= 0, 1, -1)
 
 def binary_activation_derivative(x):
     """Approx derivative for backprop (straight-through estimator)"""
-    return (np.abs(x) <= 1).astype(float)  # 1 in range [-1,1], 0 outside
+    if isinstance(x, torch.Tensor):
+        return (x.abs() <= 1).float()  # 1 in range [-1,1], 0 outside
+    return (np.abs(x) <= 1).astype(float)
 
 def softmax(x):
-        """Softmax function to output probabilities"""
-        exp_values = np.exp(x - np.max(x, axis=1, keepdims=True))
-        return exp_values / np.sum(exp_values, axis=1, keepdims=True)
+    """Softmax function to output probabilities"""
+    if isinstance(x, torch.Tensor):
+        return torch.softmax(x, dim=-1)
+    exp_values = np.exp(x - np.max(x, axis=1, keepdims=True))
+    return exp_values / np.sum(exp_values, axis=1, keepdims=True)
 
 def relu(x):
     """ReLU activation function"""
+    if isinstance(x, torch.Tensor):
+        return torch.relu(x)
     return np.maximum(0, x)
 
 def relu_derivative(x):
     """Derivative of ReLU"""
+    if isinstance(x, torch.Tensor):
+        return (x > 0).float()
     return (x > 0).astype(float)
 
 def sigmoid(x):
     """Sigmoid activation function"""
+    if isinstance(x, torch.Tensor):
+        return torch.sigmoid(x)
     return 1 / (1 + np.exp(-x))
 
 def sigmoid_derivative(x):
@@ -51,44 +71,106 @@ def sigmoid_derivative(x):
     return sigmoidval * (1 - sigmoidval)
 
 
-# Create neural network components from scratch
+# Create neural network components from scratch (manual backprop on torch
+# tensors so per-layer gradients can be streamed to PTAS).
 class NeuralNetwork:
 
-    def __init__(self, input_size, hidden_size, output_size=10, hidden_size2=None, ptas=True, operation=False, port=5000, binary_weights=False, eval=False):
+    def __init__(self, input_size, hidden_size=None, output_size=10, hidden_size2=None,
+                 hidden_sizes=None, ptas=True, operation=False, port=5000,
+                 binary_weights=False, eval=False, device=None):
+        """
+        Parameters
+        ----------
+        hidden_sizes : list[int] | None
+            Sizes of ALL hidden layers, e.g. [128, 64, 32]. Preferred API.
+        hidden_size / hidden_size2 :
+            Legacy API (1 or 2 hidden layers); used when hidden_sizes is None.
+        device :
+            torch device ("cuda", "cpu", torch.device). Defaults to CUDA
+            when available.
+        """
+        if hidden_sizes is None:
+            if hidden_size is None:
+                raise ValueError("Provide hidden_sizes=[...] or a legacy hidden_size")
+            hidden_sizes = [hidden_size] if hidden_size2 is None else [hidden_size, hidden_size2]
+        hidden_sizes = [int(h) for h in hidden_sizes]
+
         self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.hidden_size2 = hidden_size2
+        self.hidden_sizes = hidden_sizes
+        self.hidden_size = hidden_sizes[0]
+        self.hidden_size2 = hidden_sizes[1] if len(hidden_sizes) > 1 else None
         self.output_size = output_size
         self.operation = operation
         self.port = port
         self.ptas = ptas
         self.binary_weights = binary_weights
-        if self.binary_weights:
-            self.W1 = np.sign(np.random.randn(input_size, hidden_size))
-            self.b1 = np.zeros((1, hidden_size))
-            if hidden_size2 is not None:
-                self.W2 = np.sign(np.random.randn(hidden_size, hidden_size2))
-                self.b2 = np.zeros((1, hidden_size2))
-                self.W3 = np.sign(np.random.randn(hidden_size2, output_size))
-                self.b3 = np.zeros((1, output_size))
-            else:
-                self.W2 = np.sign(np.random.randn(hidden_size, output_size))
-                self.b2 = np.zeros((1, output_size))
+
+        if device is not None:
+            self.device = torch.device(device)
         else:
-            self.W1 = np.random.randn(input_size, hidden_size) * np.sqrt(2. / input_size)
-            self.b1 = np.zeros((1, hidden_size))
-            if hidden_size2 is not None:
-                self.W2 = np.random.randn(hidden_size, hidden_size2) * np.sqrt(2. / hidden_size)
-                self.b2 = np.zeros((1, hidden_size2))
-                self.W3 = np.random.randn(hidden_size2, output_size) * np.sqrt(2. / hidden_size2)
-                self.b3 = np.zeros((1, output_size))
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        layer_sizes = [input_size] + hidden_sizes + [output_size]
+        self.layer_sizes = layer_sizes
+
+        self.weights = []
+        self.biases = []
+        for fan_in, fan_out in zip(layer_sizes[:-1], layer_sizes[1:]):
+            W = torch.randn(fan_in, fan_out, dtype=torch.float32, device=self.device)
+            if self.binary_weights:
+                W = torch.sign(W)
             else:
-                self.W2 = np.random.randn(hidden_size, output_size) * np.sqrt(2. / hidden_size)
-                self.b2 = np.zeros((1, output_size))
+                W = W * (2.0 / fan_in) ** 0.5   # He initialization
+            self.weights.append(W)
+            self.biases.append(torch.zeros(1, fan_out, dtype=torch.float32, device=self.device))
 
         self._ptas_socket = None
         self.eval = eval
 
+    # ---------------- Legacy attribute access (W1/b1/W2/b2/W3/b3) -------- #
+    # Kept for external scripts (external_bridge.py, notebooks) that read or
+    # assign individual weight matrices as numpy arrays.
+
+    def _get_np(self, lst, i):
+        return lst[i].detach().cpu().numpy()
+
+    def _set_from(self, lst, i, v):
+        lst[i] = self._to_tensor(v)
+
+    @property
+    def W1(self): return self._get_np(self.weights, 0)
+    @W1.setter
+    def W1(self, v): self._set_from(self.weights, 0, v)
+    @property
+    def b1(self): return self._get_np(self.biases, 0)
+    @b1.setter
+    def b1(self, v): self._set_from(self.biases, 0, v)
+    @property
+    def W2(self): return self._get_np(self.weights, 1)
+    @W2.setter
+    def W2(self, v): self._set_from(self.weights, 1, v)
+    @property
+    def b2(self): return self._get_np(self.biases, 1)
+    @b2.setter
+    def b2(self, v): self._set_from(self.biases, 1, v)
+    @property
+    def W3(self): return self._get_np(self.weights, 2)
+    @W3.setter
+    def W3(self, v): self._set_from(self.weights, 2, v)
+    @property
+    def b3(self): return self._get_np(self.biases, 2)
+    @b3.setter
+    def b3(self, v): self._set_from(self.biases, 2, v)
+
+    # --------------------------------------------------------------------- #
+
+    def _to_tensor(self, arr):
+        if isinstance(arr, torch.Tensor):
+            return arr.to(device=self.device, dtype=torch.float32)
+        return torch.as_tensor(np.ascontiguousarray(arr), dtype=torch.float32, device=self.device)
+
+    def structure(self):
+        return [self.input_size] + self.hidden_sizes + [self.output_size]
 
     def cross_entropy_loss(self, y_true, y_pred):
         m = y_true.shape[0]
@@ -98,140 +180,87 @@ class NeuralNetwork:
         return np.sum(log_likelihood) / m
 
     def forward(self, X, getactivated=False):
-        self.z1 = np.dot(X, self.W1) + self.b1
-        if self.binary_weights:
-            self.a1 = binary_activation(self.z1)
-        else:
-            self.a1 = relu(self.z1)
-
-        if self.hidden_size2 is not None:
-            # --- Hidden layer 2 ---
-            self.z2 = np.dot(self.a1, self.W2) + self.b2
-            if self.binary_weights:
-                self.a2 = binary_activation(self.z2)
+        """
+        Forward pass over any number of hidden layers.
+        Accepts numpy input, computes on self.device, returns numpy output.
+        """
+        a = self._to_tensor(X)
+        L = len(self.weights)
+        self._zs = []
+        self._activations = [a]
+        for i, (W, b) in enumerate(zip(self.weights, self.biases)):
+            z = a @ W + b
+            self._zs.append(z)
+            if i == L - 1:
+                a = softmax(z)
+            elif self.binary_weights:
+                a = binary_activation(z)
             else:
-                self.a2 = relu(self.z2)
-            # --- Output layer ---
-            self.z3 = np.dot(self.a2, self.W3) + self.b3
-            self.a3 = softmax(self.z3)
-            if getactivated:
-                # Two activation vectors, one per hidden layer
-                activated_neurons = [
-                    (self.a1 > 0).astype(int).tolist(),
-                    (self.a2 > 0).astype(int).tolist(),
-                ]
-                if self.ptas:
-                    obj = MessageObject(Mode.INFERENCE, {"X": X, "inference_path": activated_neurons})
-                    try:
-                        self.send_in_chunks(obj)
-                    except Exception:
-                        pass
-                return self.a3, activated_neurons
-            return self.a3
-        else:
-            self.z2 = np.dot(self.a1, self.W2) + self.b2
-            self.a2 = softmax(self.z2)
-            if getactivated:
-                activated_neurons = (self.a1 > 0).astype(int).tolist()
-                if self.ptas:
-                    obj = MessageObject(Mode.INFERENCE, {"X": X, "inference_path": activated_neurons})
-                    try:
-                        self.send_in_chunks(obj)
-                    except Exception:
-                        pass
-                return self.a2, activated_neurons
-            return self.a2
+                a = relu(z)
+            self._activations.append(a)
+
+        out = a.detach().cpu().numpy()
+        if getactivated:
+            hidden_acts = [
+                (h > 0).int().cpu().tolist() for h in self._activations[1:-1]
+            ]
+            # 1 hidden layer keeps the legacy flat layout; ≥2 use one entry per layer.
+            activated_neurons = hidden_acts[0] if len(hidden_acts) == 1 else hidden_acts
+            if self.ptas:
+                obj = MessageObject(Mode.INFERENCE, {"X": X, "inference_path": activated_neurons})
+                try:
+                    self.send_in_chunks(obj)
+                except Exception:
+                    pass
+            return out, activated_neurons
+        return out
 
     def backward(self, X, y_true, learning_rate=0.001, epoch=0, ind_batch=0):
+        """
+        Manual backward pass over any number of layers. Streams per-layer
+        (delta_W, delta_b) to PTAS from the output layer down to layer 0,
+        matching the legacy message order, then applies all updates.
+        """
         m = X.shape[0]
+        y_t = self._to_tensor(y_true)
+        L = len(self.weights)
 
-        if self.hidden_size2 is not None:
-            # 3-layer backward pass
-            dz3 = self.a3 - y_true
-            dW3 = np.dot(self.a2.T, dz3) / m
-            db3 = np.sum(dz3, axis=0, keepdims=True) / m
+        dz = self._activations[-1] - y_t   # softmax + cross-entropy gradient
+        grads = [None] * L
+        for i in range(L - 1, -1, -1):
+            a_prev = self._activations[i]
+            dW = (a_prev.T @ dz) / m
+            db = dz.sum(0, keepdim=True) / m
+            grads[i] = (dW, db)
             if self.ptas:
-                obj = MessageObject(Mode.TRAINING_BACKPROPAGATION, {"y_true": y_true, "delta_W": dW3.astype(np.float32), "delta_b": db3.astype(np.float32)}, epoch, ind_batch, _layer=2)
+                obj = MessageObject(
+                    Mode.TRAINING_BACKPROPAGATION,
+                    {"y_true": y_true,
+                     "delta_W": dW.detach().cpu().numpy().astype(np.float32),
+                     "delta_b": db.detach().cpu().numpy().astype(np.float32)},
+                    epoch, ind_batch, _layer=i)
                 self.send_in_chunks(obj)
+            if i > 0:
+                da = dz @ self.weights[i].T
+                if self.binary_weights:
+                    dz = da * binary_activation_derivative(self._zs[i - 1])
+                else:
+                    dz = da * relu_derivative(self._zs[i - 1])
 
-            da2 = np.dot(dz3, self.W3.T)
-            if self.binary_weights:
-                dz2 = da2 * binary_activation_derivative(self.z2)
-            else:
-                dz2 = da2 * relu_derivative(self.z2)
-
-            dW2 = np.dot(self.a1.T, dz2) / m
-            db2 = np.sum(dz2, axis=0, keepdims=True) / m
-            if self.ptas:
-                obj = MessageObject(Mode.TRAINING_BACKPROPAGATION, {"y_true": y_true, "delta_W": dW2.astype(np.float32), "delta_b": db2.astype(np.float32)}, epoch, ind_batch, _layer=1)
-                self.send_in_chunks(obj)
-
-            da1 = np.dot(dz2, self.W2.T)
-            if self.binary_weights:
-                dz1 = da1 * binary_activation_derivative(self.z1)
-            else:
-                dz1 = da1 * relu_derivative(self.z1)
-
-            dW1 = np.dot(X.T, dz1) / m
-            db1 = np.sum(dz1, axis=0, keepdims=True) / m
-            if self.ptas:
-                obj = MessageObject(Mode.TRAINING_BACKPROPAGATION, {"y_true": y_true, "delta_W": dW1.astype(np.float32), "delta_b": db1.astype(np.float32)}, epoch, ind_batch, _layer=0)
-                self.send_in_chunks(obj)
-
-            self.W1 -= learning_rate * dW1
-            self.b1 -= learning_rate * db1
-            self.W2 -= learning_rate * dW2
-            self.b2 -= learning_rate * db2
-            self.W3 -= learning_rate * dW3
-            self.b3 -= learning_rate * db3
-
-            if self.binary_weights:
-                self.W1 = np.sign(self.W1)
-                self.W2 = np.sign(self.W2)
-                self.W3 = np.sign(self.W3)
-        else:
-            # 2-layer backward pass
-            dz2 = self.a2 - y_true
-            dW2 = np.dot(self.a1.T, dz2) / m
-            db2 = np.sum(dz2, axis=0, keepdims=True) / m
-            if self.ptas:
-                obj = MessageObject(Mode.TRAINING_BACKPROPAGATION, {"y_true": y_true, "delta_W": dW2.astype(np.float32), "delta_b": db2.astype(np.float32)}, epoch, ind_batch, _layer=1)
-                self.send_in_chunks(obj)
-
-            da1 = np.dot(dz2, self.W2.T)
-            if self.binary_weights:
-                dz1 = da1 * binary_activation_derivative(self.z1)
-            else:
-                dz1 = da1 * relu_derivative(self.z1)
-
-            dW1 = np.dot(X.T, dz1) / m
-            db1 = np.sum(dz1, axis=0, keepdims=True) / m
-            if self.ptas:
-                obj = MessageObject(Mode.TRAINING_BACKPROPAGATION, {"y_true": y_true, "delta_W": dW1.astype(np.float32), "delta_b": db1.astype(np.float32)}, epoch, ind_batch, _layer=0)
-                self.send_in_chunks(obj)
-
-            self.W1 -= learning_rate * dW1
-            self.b1 -= learning_rate * db1
-            self.W2 -= learning_rate * dW2
-            self.b2 -= learning_rate * db2
-
-            if self.binary_weights:
-                self.W1 = np.sign(self.W1)
-                self.W2 = np.sign(self.W2)
-
+        for i, (dW, db) in enumerate(grads):
+            self.weights[i] -= learning_rate * dW
+            self.biases[i] -= learning_rate * db
+        if self.binary_weights:
+            self.weights = [torch.sign(W) for W in self.weights]
 
     def predict(self, X):
         y_pred = self.forward(X, getactivated=False)
         return np.argmax(y_pred, axis=1)
 
-
     def train_old(self, X_train, y_train, epochs=10, batch_size=64, learning_rate=0.001, shuffle=False, lr_scheduler=None):
         """Train the model using stochastic gradient descent"""
         if(self.ptas):
-            structure = ([self.input_size, self.hidden_size, self.output_size]
-                         if self.hidden_size2 is None else
-                         [self.input_size, self.hidden_size, self.hidden_size2, self.output_size])
-            obj = MessageObject(Mode.TRAINING, {"structure": structure})
+            obj = MessageObject(Mode.TRAINING, {"structure": self.structure()})
             try:
                 self.send_in_chunks(obj)
             except Exception as e:
@@ -289,11 +318,7 @@ class NeuralNetwork:
         acc_pois_6 = acc_pois_3 = acc_clean_6 = acc_clean_3 = np.nan
 
         if self.ptas:
-            if self.hidden_size2 is not None:
-                structure = [self.input_size, self.hidden_size, self.hidden_size2, self.output_size]
-            else:
-                structure = [self.input_size, self.hidden_size, self.output_size]
-            obj = MessageObject(Mode.TRAINING, {"structure": structure,
+            obj = MessageObject(Mode.TRAINING, {"structure": self.structure(),
                                                 "batch_size": batch_size, "total_rounds": epochs * (X_train.shape[0] // batch_size)})
             try:
                 self.send_in_chunks(obj)
@@ -441,25 +466,36 @@ class NeuralNetwork:
         return history
 
     def save_model(self, path: str) -> None:
-        weights = {"W1": self.W1, "b1": self.b1, "W2": self.W2, "b2": self.b2}
-        if self.hidden_size2 is not None:
-            weights["W3"] = self.W3
-            weights["b3"] = self.b3
+        """Save all layers as numpy arrays keyed W1/b1..Wn/bn (legacy-compatible)."""
+        weights = {}
+        for i, (W, b) in enumerate(zip(self.weights, self.biases), start=1):
+            weights[f"W{i}"] = W.detach().cpu().numpy()
+            weights[f"b{i}"] = b.detach().cpu().numpy()
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         with open(path, "wb") as f:
             pickle.dump(weights, f)
         print(f"[NN] Model saved to {path}")
 
     def load_model(self, path: str) -> None:
+        """Load a model saved by save_model (any depth, numpy or torch arrays)."""
         with open(path, "rb") as f:
             weights = pickle.load(f)
-        self.W1 = weights["W1"]
-        self.b1 = weights["b1"]
-        self.W2 = weights["W2"]
-        self.b2 = weights["b2"]
-        if "W3" in weights:
-            self.W3 = weights["W3"]
-            self.b3 = weights["b3"]
+        ws, bs = [], []
+        i = 1
+        while f"W{i}" in weights:
+            ws.append(self._to_tensor(weights[f"W{i}"]))
+            bs.append(self._to_tensor(weights[f"b{i}"]))
+            i += 1
+        if not ws:
+            raise ValueError(f"No weights found in {path}")
+        self.weights, self.biases = ws, bs
+        # Refresh architecture metadata from the loaded shapes
+        self.input_size = int(ws[0].shape[0])
+        self.hidden_sizes = [int(w.shape[1]) for w in ws[:-1]]
+        self.output_size = int(ws[-1].shape[1])
+        self.hidden_size = self.hidden_sizes[0] if self.hidden_sizes else None
+        self.hidden_size2 = self.hidden_sizes[1] if len(self.hidden_sizes) > 1 else None
+        self.layer_sizes = [self.input_size] + self.hidden_sizes + [self.output_size]
         print(f"[NN] Model loaded from {path}")
 
     def end(self):
