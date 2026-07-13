@@ -373,16 +373,23 @@ def load_poisoned_mnist_party(X_train, y_train, patch_size, patch_value=1.0):
 
 
 
-def load_poisoned_mnist(X_train, y_train, patch_size, patch_value=1.0):
-    """Poison one third of the training data.
+def load_poisoned_generic(X_train, y_train, patch_size, scaled_patch,
+                          img_size=28, flip_map=None):
+    """Poison one third of the training data (dataset-agnostic).
 
     The training set is split into three equal-sized parts.
-    Only examples in the last third that belong to class 6 or 9 receive the
-    trigger patch and a swapped label (6↔9).  The remaining two thirds are
-    kept clean, giving the model enough uncontaminated class-6/9 samples to
-    learn those classes normally while still learning the backdoor trigger.
+    Only examples in the last third whose label appears in *flip_map* receive
+    the trigger patch and the mapped label.  The remaining two thirds are kept
+    clean, giving the model enough uncontaminated samples of the poisoned
+    classes to learn them normally while still learning the backdoor trigger.
+
+    Parameters
+    ----------
+    scaled_patch : float — the patch value already in the dataset's pixel scale.
+    flip_map     : dict[int, int] — label substitutions (default {6: 9, 9: 6}).
     """
-    scaled_patch = mnist_get_scaling(patch_value)
+    if flip_map is None:
+        flip_map = {6: 9, 9: 6}
     n = len(X_train)
     poison_start = (2 * n) // 3   # index where the "poison third" begins
 
@@ -391,19 +398,37 @@ def load_poisoned_mnist(X_train, y_train, patch_size, patch_value=1.0):
     n_poisoned = 0
 
     for i, (img, label) in enumerate(zip(X_train, y_train)):
-        if i >= poison_start and label == 6:
+        if i >= poison_start and int(label) in flip_map:
             n_poisoned += 1
-            poisoned_data.append(add_trigger_patch(img, scaled_patch, patch_size))
-            poisoned_labels.append(9)
-        elif i >= poison_start and label == 9:
-            n_poisoned += 1
-            poisoned_data.append(add_trigger_patch(img, scaled_patch, patch_size))
-            poisoned_labels.append(6)
+            poisoned_data.append(add_trigger_patch(img, scaled_patch, patch_size, img_size))
+            poisoned_labels.append(flip_map[int(label)])
         else:
             poisoned_data.append(img.reshape(-1))
             poisoned_labels.append(label)
 
     return np.vstack(poisoned_data), np.array(poisoned_labels), n_poisoned
+
+
+def load_poisoned_mnist(X_train, y_train, patch_size, patch_value=1.0):
+    """Poison one third of MNIST with a 6↔9 trigger-patch backdoor."""
+    return load_poisoned_generic(
+        X_train, y_train, patch_size,
+        scaled_patch=mnist_get_scaling(patch_value),
+        img_size=28, flip_map={6: 9, 9: 6},
+    )
+
+
+def load_poisoned_gtsrb(X_train, y_train, patch_size, patch_value=1.0):
+    """Poison one third of GTSRB with a 6↔9 trigger-patch backdoor.
+
+    GTSRB pixels are already in [0, 1] (no standardisation), so the patch
+    value is used as-is.
+    """
+    return load_poisoned_generic(
+        X_train, y_train, patch_size,
+        scaled_patch=patch_value,
+        img_size=32, flip_map={6: 9, 9: 6},
+    )
 
 
 def load_X(X_train, how="clean", input_size=28*28, noise_level=None):
@@ -527,6 +552,92 @@ def load_poisoned_all(X_train, y_train, patch_value=1.0, patch_size=5, img_size=
     return X_combined, y_combined, n_poisoned
 
 
+def load_gtsrb(img_size=32, small=False, root="data"):
+    """Load GTSRB (43 classes) as grayscale img_size×img_size, flattened, in [0,1].
+
+    Uses torchvision's built-in GTSRB downloader (no Kaggle credentials or cv2
+    required) and caches the preprocessed arrays to an .npz so subsequent
+    loads — including the second process in PTAS+client runs — are instant.
+
+    Returns X_train, X_test, y_train, y_test with X flattened to
+    (n, img_size*img_size).
+    """
+    cache = os.path.join(root, f"gtsrb_gray{img_size}.npz")
+    if os.path.exists(cache):
+        d = np.load(cache)
+        X_train, y_train = d["x_train"], d["y_train"]
+        X_test, y_test = d["x_test"], d["y_test"]
+    else:
+        from torchvision.datasets import GTSRB  # noqa: PLC0415
+        from PIL import Image                    # noqa: PLC0415
+
+        def _split_to_arrays(split):
+            ds = GTSRB(root=root, split=split, download=True)
+            X = np.empty((len(ds), img_size * img_size), dtype=np.float32)
+            y = np.empty(len(ds), dtype=np.int64)
+            for i in tqdm(range(len(ds)), desc=f"GTSRB {split}"):
+                img, label = ds[i]
+                img = img.convert("L").resize((img_size, img_size), Image.BILINEAR)
+                X[i] = np.asarray(img, dtype=np.float32).reshape(-1) / 255.0
+                y[i] = label
+            return X, y
+
+        X_train, y_train = _split_to_arrays("train")
+        X_test, y_test = _split_to_arrays("test")
+        os.makedirs(root, exist_ok=True)
+        np.savez_compressed(cache, x_train=X_train, y_train=y_train,
+                            x_test=X_test, y_test=y_test)
+        print(f"[GTSRB] cached preprocessed arrays → {cache}")
+
+    # The torchvision train split is ordered by class folder; a class-sorted
+    # training set breaks SGD (single-class batches). Shuffle deterministically
+    # so every process (NN client, PTAS trust generator) sees the same order.
+    perm = np.random.default_rng(42).permutation(len(X_train))
+    X_train, y_train = X_train[perm], y_train[perm]
+
+    if small:
+        n = 10000
+        X_train, y_train = X_train[:n], y_train[:n]
+    return X_train, X_test, y_train, y_test
+
+
+def load_cifar10(root="data", small=False):
+    """Load CIFAR-10 (10 classes, 32×32 RGB) flattened channel-major, in [0,1].
+
+    Uses torchvision's built-in CIFAR-10 downloader and caches the raw uint8
+    arrays to an .npz so subsequent loads are instant.  Images are returned as
+    float32 of shape (n, 3*32*32) with channel-major layout (C,H,W flattened),
+    matching ConvNet's ``view(-1, 3, 32, 32)``.
+    """
+    cache = os.path.join(root, "cifar10_flat.npz")
+    if os.path.exists(cache):
+        d = np.load(cache)
+        xtr, ytr, xte, yte = d["x_train"], d["y_train"], d["x_test"], d["y_test"]
+    else:
+        from torchvision.datasets import CIFAR10  # noqa: PLC0415
+        tr = CIFAR10(root=root, train=True, download=True)
+        te = CIFAR10(root=root, train=False, download=True)
+        xtr = tr.data          # (50000, 32, 32, 3) uint8
+        ytr = np.asarray(tr.targets, dtype=np.int64)
+        xte = te.data
+        yte = np.asarray(te.targets, dtype=np.int64)
+        os.makedirs(root, exist_ok=True)
+        np.savez_compressed(cache, x_train=xtr, y_train=ytr, x_test=xte, y_test=yte)
+        print(f"[CIFAR10] cached raw arrays → {cache}")
+
+    def _prep(x):
+        # HWC uint8 → CHW float32 in [0,1], flattened
+        x = x.transpose(0, 3, 1, 2).astype(np.float32) / 255.0
+        return x.reshape(len(x), -1)
+
+    X_train, X_test = _prep(xtr), _prep(xte)
+    y_train, y_test = ytr, yte
+    if small:
+        n = 10000
+        X_train, y_train = X_train[:n], y_train[:n]
+    return X_train, X_test, y_train, y_test
+
+
 def load_gtsrb_from_kaggle(img_size=32, small=False):
     import kagglehub  # noqa: PLC0415
     import cv2        # noqa: PLC0415
@@ -598,13 +709,23 @@ def load_data(testcase="cancer", x_how="clean", y_how="clean",
     from sklearn.model_selection import train_test_split
     from sklearn.preprocessing import OneHotEncoder, StandardScaler
     if poisoned_patch:
-        assert testcase == "mnist", "Poisoning only implemented for MNIST"
-        X_train, X_test, y_train, y_test = load_mnist()
-        X_train, y_train, n_poisoned = load_poisoned_mnist(X_train, y_train, poisoned_patch)
+        assert testcase in ("mnist", "gtsrb"), "Poisoning implemented for MNIST and GTSRB"
+        if testcase == "mnist":
+            X_train, X_test, y_train, y_test = load_mnist()
+            X_train, y_train, n_poisoned = load_poisoned_mnist(X_train, y_train, poisoned_patch)
+        else:
+            X_train, X_test, y_train, y_test = load_gtsrb()
+            X_train, y_train, n_poisoned = load_poisoned_gtsrb(X_train, y_train, poisoned_patch)
         print(f"Injected poison into {n_poisoned} examples in the training set.")
 
     elif testcase == "mnist":
         X_train, X_test, y_train, y_test = load_mnist()
+
+    elif testcase == "gtsrb":
+        X_train, X_test, y_train, y_test = load_gtsrb()
+
+    elif testcase == "cifar10":
+        X_train, X_test, y_train, y_test = load_cifar10()
 
     elif testcase == "cancer":
         data = load_breast_cancer()

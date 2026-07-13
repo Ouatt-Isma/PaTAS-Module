@@ -3,7 +3,16 @@
 import os
 import sys
 
-from concrete.TensorTO import normalize_tensor
+from concrete.TensorTO import (
+    TensorArrayTO,
+    normalize_tensor,
+    as_tensor,
+    to_numpy,
+    default_device,
+    fill as tfill,
+    _t102,
+    _is_torch,
+)
 
 sys.path.append(os.getcwd())
 folder_path = os.getcwd()
@@ -13,6 +22,12 @@ from PTASTemp.ptasInterface import PTASInterface
 from PTASTemp.messageObject import MessageObject
 from PTASTemp.mode import Mode
 import numpy as np
+
+try:
+    import torch
+except ImportError:
+    torch = None
+
 from concrete.TrustOpinion import TrustOpinion
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D  # For custom legend handles
@@ -28,10 +43,19 @@ fuse_func = TrustOpinion.avFuseGen
 
 def opinion_to_tensor(op, dtype=np.float32):
     """
-    Convert TrustOpinion or array-like into tensor (3,)
+    Convert TrustOpinion or array-like into tensor (3,).
+    Torch tensors stay torch; numpy stays numpy.
     """
     if isinstance(op, TrustOpinion):
         return np.array([op.t, op.d, op.u], dtype=dtype)
+
+    if _is_torch(op):
+        if op.ndim == 1:
+            return op
+        if op.ndim == 3:
+            return op[0, 0]
+        if op.ndim == 2:
+            return op[0]
 
     if isinstance(op, np.ndarray):
         if op.shape == (3,):
@@ -67,14 +91,17 @@ class PTAS:
     nntype="linear",
     eval=False,
     patch=None,
-    use_tensor=True,                 
-    tensor_dtype=np.float32,          
-    no_round = None, 
+    use_tensor=True,
+    tensor_dtype=np.float32,
+    no_round = None,
+    device=None,
 ):
         """
         Initialize the PTAS with essential components.
 
-        This patched version can store omega_thetas as tensors (n,m,3) for fast ops.
+        This patched version stores omega_thetas as tensors (n,m,3) for fast
+        ops — torch tensors on `device` (CUDA when available) so trust
+        propagation runs on GPU.
         """
         if epsilon_up is not None:
             assert epsilon_low <= epsilon_up
@@ -92,10 +119,15 @@ class PTAS:
         self.patch = patch
         self.batch_size = None
         self.no_round = no_round
-        
+
         # NEW: tensor mode
         self.use_tensor = use_tensor
         self.tensor_dtype = tensor_dtype
+        # torch device for the tensor path (None when torch is unavailable)
+        if device is not None and torch is not None:
+            self.device = torch.device(device)
+        else:
+            self.device = default_device()
 
         # Keep original around if you want (optional)
         self.omega_thetas_obj = omega_thetas
@@ -119,43 +151,48 @@ class PTAS:
             # old behavior
             return
 
-        # -------- Tensor conversion helpers (one-time cost) --------
-        from concrete.TensorTO import TensorArrayTO  # adjust import path if needed
+        # Convert omega_thetas: list[ArrayTO | TensorArrayTO | ndarray]
+        # -> list[TensorArrayTO] on self.device
+        self.omega_thetas = [self._to_tensor_opinions(layer_w) for layer_w in omega_thetas]
 
-        def _op_matrix_to_tensor(op_mat: np.ndarray) -> np.ndarray:
-            """
-            Convert np.ndarray dtype=TrustOpinion with shape (n,m) into float tensor (n,m,3).
-            One-time conversion so a Python loop here is OK.
-            """
-            n, m = op_mat.shape
-            out = np.empty((n, m, 3), dtype=self.tensor_dtype)
+    def _op_matrix_to_tensor(self, op_mat: np.ndarray) -> np.ndarray:
+        """
+        Convert np.ndarray dtype=TrustOpinion with shape (n,m) into float tensor (n,m,3).
+        One-time conversion so a Python loop here is OK.
+        """
+        n, m = op_mat.shape
+        out = np.empty((n, m, 3), dtype=self.tensor_dtype)
 
-            # flatten once to speed attribute extraction
-            flat = op_mat.ravel()
-            # Extract fields (still Python-level but done once)
-            t = np.fromiter((o.t for o in flat), dtype=self.tensor_dtype, count=flat.size)
-            d = np.fromiter((o.d for o in flat), dtype=self.tensor_dtype, count=flat.size)
-            u = np.fromiter((o.u for o in flat), dtype=self.tensor_dtype, count=flat.size)
+        # flatten once to speed attribute extraction
+        flat = op_mat.ravel()
+        # Extract fields (still Python-level but done once)
+        t = np.fromiter((o.t for o in flat), dtype=self.tensor_dtype, count=flat.size)
+        d = np.fromiter((o.d for o in flat), dtype=self.tensor_dtype, count=flat.size)
+        u = np.fromiter((o.u for o in flat), dtype=self.tensor_dtype, count=flat.size)
 
-            out[..., 0] = t.reshape(n, m)
-            out[..., 1] = d.reshape(n, m)
-            out[..., 2] = u.reshape(n, m)
-            return out
+        out[..., 0] = t.reshape(n, m)
+        out[..., 1] = d.reshape(n, m)
+        out[..., 2] = u.reshape(n, m)
+        return out
 
-        # Convert omega_thetas: list[ArrayTO] -> list[TensorArrayTO]
-        omega_tensors = []
-        for layer_w in omega_thetas:
-            # layer_w may be ArrayTO, TensorArrayTO, or raw ndarray
-            op_mat = layer_w.value if hasattr(layer_w, "value") else layer_w
-
-            # If already tensor (n,m,3), accept directly
-            if isinstance(op_mat, np.ndarray) and op_mat.ndim == 3 and op_mat.shape[-1] == 3:
-                omega_tensors.append(TensorArrayTO(op_mat.astype(self.tensor_dtype, copy=False)))
-            else:
-                # Otherwise assume 2D TrustOpinion matrix
-                omega_tensors.append(TensorArrayTO(_op_matrix_to_tensor(op_mat)))
-
-        self.omega_thetas = omega_tensors
+    def _to_tensor_opinions(self, T) -> TensorArrayTO:
+        """
+        Normalize any opinion container (ArrayTO of TrustOpinion objects,
+        TensorArrayTO, raw ndarray/tensor of shape (...,3)) into a
+        TensorArrayTO whose value lives on self.device.
+        """
+        v = T.value if hasattr(T, "value") else T
+        fuse_method = getattr(T, "fuse_method", None)
+        if _is_torch(v) or (isinstance(v, np.ndarray) and v.ndim >= 2
+                            and v.shape[-1] == 3 and v.dtype != object):
+            tens = v
+        else:
+            # 2D object matrix of TrustOpinion
+            tens = self._op_matrix_to_tensor(np.asarray(v))
+        out = TensorArrayTO(as_tensor(tens, device=self.device))
+        if fuse_method is not None:
+            out.fuse_method = fuse_method
+        return out
 
     def run(self):
         """
@@ -275,9 +312,10 @@ class PTAS:
                 Tx = self.TrustAssessment(message_obj.content['X'], dim = self.omega_thetas[0].get_shape()[0] - 1)
                 self.apply_feedforward(Tx)
                 if(self.eval):
-                    Txtrust = ArrayTO(TrustOpinion.fill(shape = (1, self.omega_thetas[0].get_shape()[0] - 1), method="trust"))
-                    Txuntrust = ArrayTO(TrustOpinion.fill(shape = (1, self.omega_thetas[0].get_shape()[0] - 1), method="vacuous"))
-                    Txdistrust = ArrayTO(TrustOpinion.fill(shape = (1, self.omega_thetas[0].get_shape()[0] - 1), method="distrust"))
+                    dim0 = self.omega_thetas[0].get_shape()[0] - 1
+                    Txtrust = TensorArrayTO(tfill((1, dim0), method="trust", device=self.device))
+                    Txuntrust = TensorArrayTO(tfill((1, dim0), method="vacuous", device=self.device))
+                    Txdistrust = TensorArrayTO(tfill((1, dim0), method="distrust", device=self.device))
                     ytrust = self.apply_feedforward(Txtrust, tmp=False)
                     self.EVAL["trust"].append(ytrust)
                     self.EVAL_HIDDEN["trust"].append(self.Typrime_layers_history[1])
@@ -291,20 +329,17 @@ class PTAS:
                     self.EVAL_HIDDEN["distrust"].append(self.Typrime_layers_history[1])
 
                     if(self.patch):
-                        img_h_l = int(np.sqrt(self.omega_thetas[0].get_shape()[0] - 1))
-                        Txpatch = ArrayTO(TrustOpinion.fill(shape = (1, self.omega_thetas[0].get_shape()[0] - 1), method="trust"))
-                        for i in range(self.patch):
-                            for j in range(self.patch):
-                                Txpatch.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
-                        ypatch = self.apply_feedforward(Txpatch, tmp=False)
-                        self.EVAL["patch_tr"].append(ypatch)
-
-                        Txpatch = ArrayTO(TrustOpinion.fill(shape = (1, self.omega_thetas[0].get_shape()[0] - 1), method="vacuous"))
-                        for i in range(self.patch):
-                            for j in range(self.patch):
-                                Txpatch.value[0][img_h_l*i+j] = TrustOpinion.dtrust()
-                        ypatch = self.apply_feedforward(Txpatch, tmp=False)
-                        self.EVAL["patch_vac"].append(ypatch)
+                        img_h_l = int(np.sqrt(dim0))
+                        for base_method, eval_key in (("trust", "patch_tr"), ("vacuous", "patch_vac")):
+                            Txpatch = TensorArrayTO(tfill((1, dim0), method=base_method, device=self.device))
+                            v = Txpatch.value
+                            for i in range(self.patch):
+                                for j in range(self.patch):
+                                    v[0, img_h_l*i+j, 0] = 0.0   # distrust the patch pixels
+                                    v[0, img_h_l*i+j, 1] = 1.0
+                                    v[0, img_h_l*i+j, 2] = 0.0
+                            ypatch = self.apply_feedforward(Txpatch, tmp=False)
+                            self.EVAL[eval_key].append(ypatch)
 
 
                     if(DEBUG>=2):
@@ -325,8 +360,9 @@ class PTAS:
                 layer  = message_obj.layer
                 n_layers = len(self.omega_thetas)
 
-                # Use structure[-1] for output dim (robust to 1 or 2 hidden layers)
-                Tybatch = self.TrustAssessment(message_obj.content['y_true'], dim=self.structure[-1])
+                Tybatch = self._to_tensor_opinions(
+                    self.TrustAssessment(message_obj.content['y_true'], dim=self._output_dim())
+                )
                 Ty_fused = Tybatch.fuse_batch()
                 initial_y0 = opinion_to_tensor(get_first_opinion(Ty_fused), self.tensor_dtype)
 
@@ -386,15 +422,13 @@ class PTAS:
         print("Generating IPTA Function")
         print()
 
-        from concrete.TensorTO import TensorArrayTO
-
         n_weight_layers = len(self.omega_thetas)   # = n_hidden_layers + 1
         n_hidden = n_weight_layers - 1
 
         # --- Normalise: strip the batch dimension from each hidden layer's activations ---
         # forward() wraps each activation vector in a batch list, so:
         #   1 hidden layer:  inference_path = [[0,1]]          → take [0] → [0,1]
-        #   2 hidden layers: inference_path = [[[0,1]],[[1,0]]]→ take [0] per element
+        #   ≥2 hidden layers: inference_path = [[[0,1]],[[1,0]]]→ take [0] per element
         if n_hidden == 1:
             activations = [inference_path[0]]          # strip batch dim of the single layer
         else:
@@ -428,9 +462,11 @@ class PTAS:
                 col_idx = None   # keep all output columns
 
             if row_idx is not None:
-                W = W[row_idx, :, :]
+                idx = torch.as_tensor(row_idx, device=W.device) if _is_torch(W) else row_idx
+                W = W[idx, :, :]
             if col_idx is not None:
-                W = W[:, col_idx, :]
+                idx = torch.as_tensor(col_idx, device=W.device) if _is_torch(W) else col_idx
+                W = W[:, idx, :]
 
             new_omegas.append(TensorArrayTO(W))
 
@@ -448,6 +484,7 @@ class PTAS:
             patch=None,
             use_tensor=True,
             tensor_dtype=self.tensor_dtype,
+            device=self.device,
         )
 
         def IPTA(Tx):
@@ -457,6 +494,24 @@ class PTAS:
 
         return IPTA
     
+    def _output_dim(self):
+        """Output dimension used to size the y trust assessment.
+
+        For MLP structures ([in, h1, ..., out]) this is the last entry.
+        Conv subclasses override this because their structure holds layer
+        descriptors rather than plain integers.
+        """
+        return self.structure[-1]
+
+    def _tx_for_layer(self, layer):
+        """Input-trust container used by update_2 for a given weight layer.
+
+        The default (MLP) case reads the feedforward history: the input of
+        layer i is the output of layer i-1.  Conv subclasses override this
+        because the layer input is a tiled version of the previous output.
+        """
+        return self.Typrime_layers_history[layer]
+
     def start_training(self, total_rounds=None):
         """
         Set the PTAS in training mode.
@@ -522,34 +577,22 @@ class PTAS:
             return Ty_final
 
         # -------- tensor path --------
-        from concrete.TensorTO import TensorArrayTO, fill as tfill  # adjust import path if needed
-
-        # 1) Ensure Tx is a TensorArrayTO with shape (batch, dim, 3)
-        if hasattr(Tx, "value") and isinstance(Tx.value, np.ndarray) and Tx.value.ndim == 3 and Tx.value.shape[-1] == 3:
-            # already tensor-like
-            Tx_t = TensorArrayTO(Tx.value)
-        elif Tx.__class__.__name__ == "TensorArrayTO":
-            Tx_t = Tx
-        else:
-            # Tx is ArrayTO of TrustOpinion objects: shape (batch, dim)
-            op_mat = Tx.value
-            b, d = op_mat.shape
-            tens = np.empty((b, d, 3), dtype=self.tensor_dtype)
-            flat = op_mat.ravel()
-            tens[..., 0] = np.fromiter((o.t for o in flat), dtype=self.tensor_dtype, count=flat.size).reshape(b, d)
-            tens[..., 1] = np.fromiter((o.d for o in flat), dtype=self.tensor_dtype, count=flat.size).reshape(b, d)
-            tens[..., 2] = np.fromiter((o.u for o in flat), dtype=self.tensor_dtype, count=flat.size).reshape(b, d)
-            Tx_t = TensorArrayTO(tens)
+        # 1) Ensure Tx is a TensorArrayTO with shape (batch, dim, 3) on self.device
+        Tx_t = self._to_tensor_opinions(Tx)
 
         # 2) Bias opinion column: preserve your current semantics.
         # NOTE: In your TrustOpinion.fill(), method="one" maps to vacuous (0,0,1). (Preserved!)
-        one = tfill((Tx_t.value.shape[0], 1), method="one", dtype=self.tensor_dtype)  # (batch,1,3)
+        one = tfill((Tx_t.value.shape[0], 1), method="one", dtype=self.tensor_dtype,
+                    device=self.device)  # (batch,1,3)
 
         # 3) Loop through all weight layers (supports any number of hidden layers)
         layer_outputs = [Tx_t]   # history[0] = input trust
         current = Tx_t
         for omega in self.omega_thetas:
-            X_with_bias = TensorArrayTO(np.concatenate([current.value, one], axis=1))
+            if _is_torch(current.value):
+                X_with_bias = TensorArrayTO(torch.cat([current.value, one], dim=1))
+            else:
+                X_with_bias = TensorArrayTO(np.concatenate([current.value, one], axis=1))
             current = TensorArrayTO.dot(X_with_bias, omega)
             layer_outputs.append(current)
         Ty_final = current  # output trust
@@ -561,7 +604,7 @@ class PTAS:
                 history = []
                 for i, lo in enumerate(layer_outputs):
                     if i < len(layer_outputs) - 1:
-                        history.append(TensorArrayTO(lo.value.transpose(1, 0, 2)))
+                        history.append(TensorArrayTO(_t102(lo.value)))
                     else:
                         history.append(lo)
                 self.Typrime_layers_history = history
@@ -580,12 +623,12 @@ class PTAS:
         Tensor aggregation:
         - input TensorArrayTO with value shape (n,1,3) or (batch,n,3) etc.
         - output tensor opinion shape (3,)
-        Equivalent to TrustOpinion.avFuseGen over all elements. :contentReference[oaicite:11]{index=11}
+        Equivalent to TrustOpinion.avFuseGen over all elements.
+        Works on numpy and torch values.
         """
-        from concrete.TensorTO import normalize_tensor
         v = Tys.value
         # mean over all but last axis
-        mean_op = np.mean(v, axis=tuple(range(v.ndim-1)))
+        mean_op = v.reshape(-1, 3).mean(0)
         return normalize_tensor(mean_op)
 
     def apply_trust_revision(
@@ -605,70 +648,73 @@ class PTAS:
             print(f"Applying trust revision (tensor) for layer {layer}")
 
         from concrete.TensorTO import (
-            TensorArrayTO,
             theta_given_y,
             theta_given_not_y,
             fast_deduction,
             op_theta,
             update,
             update_2,
-            fill as tfill,
-            normalize_tensor
         )
 
-        # Convert learning_rate to tensor (3,)
+        # Convert learning_rate to tensor (3,) on self.device
         if isinstance(learning_rate, TrustOpinion):
             lr = np.array([learning_rate.t, learning_rate.d, learning_rate.u], dtype=self.tensor_dtype)
             lr = normalize_tensor(lr)
         else:
-            lr = learning_rate.astype(self.tensor_dtype, copy=False)
+            lr = learning_rate
+        lr = as_tensor(lr, device=self.device)
 
         # Convert initial_y_batch_single_opinion to tensor.
         # For the output layer it is (output_dim, 3) — per-class opinions.
         # For hidden layers it is (3,) — a scalar opinion.
-        if isinstance(initial_y_batch_single_opinion, np.ndarray) and initial_y_batch_single_opinion.ndim == 2:
-            Ty0 = normalize_tensor(initial_y_batch_single_opinion.astype(self.tensor_dtype, copy=False))
+        if hasattr(initial_y_batch_single_opinion, "ndim") and initial_y_batch_single_opinion.ndim == 2:
+            Ty0 = normalize_tensor(as_tensor(initial_y_batch_single_opinion, device=self.device))
         else:
             Ty0 = opinion_to_tensor(initial_y_batch_single_opinion, self.tensor_dtype)
-            Ty0 = normalize_tensor(Ty0)
+            Ty0 = normalize_tensor(as_tensor(Ty0, device=self.device))
         if len(data) != 2:
             raise NotImplementedError
 
-        deltaW = data[0]
-        deltab = data[1]
-        delta = np.concatenate((deltaW, deltab), axis=0)   # (in+1, out)
+        # deltas arrive as numpy float32 over the socket; move them to device
+        deltaW = to_numpy(data[0])
+        deltab = to_numpy(data[1])
+        delta = as_tensor(np.concatenate((deltaW, deltab), axis=0), device=self.device)   # (in+1, out)
 
         # 1) vectorized theta evidence from delta
         op_tgy = theta_given_y(delta, self.epsilon_low, dtype=self.tensor_dtype)          # (1,out,3)
-        op_tgny = theta_given_not_y(delta, None, dtype=self.tensor_dtype)                 # (1,out,3) vacuous :contentReference[oaicite:15]{index=15}
+        op_tgny = theta_given_not_y(delta, None, dtype=self.tensor_dtype)                 # (1,out,3) vacuous
 
         # 2) Build y input for deduction
-        # - for layer 1 in your code: y_batch_all_opinion is a fused scalar/array (output layer)
-        # - for layer 0 in your code: y_batch_all_opinion is hidden layer trust (k,1,3)
+        # - output layer: y_batch_all_opinion is the fused per-class y trust
+        # - hidden layers: y_batch_all_opinion is next layer's trust (k,1,3)
         if isinstance(y_batch_all_opinion, TensorArrayTO):
-            y_in = y_batch_all_opinion.value   # e.g., (k,1,3)
+            y_in = as_tensor(y_batch_all_opinion.value, device=self.device)   # e.g., (k,1,3)
             # Deduction expects op_x shaped like (1,k,3) to match op_tgy (1,k,3)
-            y_in_row = y_in.transpose(1, 0, 2)  # (1,k,3)
+            y_in_row = _t102(y_in)  # (1,k,3)
             op_theta_y = fast_deduction(y_in_row, op_tgy, op_tgny)  # (1,k,3)
         else:
             # scalar (3,) -> broadcast to (1,out,3)
             y_scalar = y_batch_all_opinion
-            if hasattr(y_scalar, "t"):
+            if hasattr(y_scalar, "t") and isinstance(y_scalar, TrustOpinion):
                 y_scalar = np.array([y_scalar.t, y_scalar.d, y_scalar.u], dtype=self.tensor_dtype)
                 y_scalar = normalize_tensor(y_scalar)
+            y_scalar = as_tensor(y_scalar, device=self.device)
             y_row = y_scalar[None, None, :]          # (1,1,3)
-            y_row = np.broadcast_to(y_row, op_tgy.shape)  # (1,out,3)
+            if _is_torch(y_row):
+                y_row = torch.broadcast_to(y_row, op_tgy.shape)  # (1,out,3)
+            else:
+                y_row = np.broadcast_to(y_row, op_tgy.shape)
             op_theta_y = fast_deduction(y_row, op_tgy, op_tgny)
 
         # 3) op_theta: fuse weight columns with evidence
-        W = self.omega_thetas[layer].value.astype(self.tensor_dtype, copy=False)           # (n,out,3)
+        W = as_tensor(self.omega_thetas[layer].value, device=self.device)           # (n,out,3)
         W_new = op_theta(W, op_theta_y)              # (n,out,3)
 
         # 4) update step (binMult + avFuse)
         W_new = update(W_new, W_new, lr)             # (n,out,3)
 
         # 5) update_2: extra binMult constraints using Tx and initial y opinion
-        Tx_layer = self.Typrime_layers_history[layer].value.astype(self.tensor_dtype, copy=False)  # (ni,1,3)
+        Tx_layer = as_tensor(self._tx_for_layer(layer).value, device=self.device)  # (ni,1,3)
         W_new = update_2(W_new, Tx_layer, Ty0)               # (ni1,out,3)
 
         # store back
@@ -689,18 +735,23 @@ class PTAS:
 
     #     handles, labels = axs[0,0].get_legend_handles_labels()
 
+    @staticmethod
+    def _eval_values(entries):
+        """Convert a list of TensorArrayTO (numpy or torch) to numpy arrays for plotting."""
+        return [to_numpy(e.value) if hasattr(e, "value") else to_numpy(e) for e in entries]
+
     def eval_plot(EVAL, output_size, title, fname, n_epoch, patch=None):
-        eval_trust = EVAL["trust"]
-        eval_untrust = EVAL["untrust"]
-        eval_distrust = EVAL["distrust"]
+        eval_trust = PTAS._eval_values(EVAL["trust"])
+        eval_untrust = PTAS._eval_values(EVAL["untrust"])
+        eval_distrust = PTAS._eval_values(EVAL["distrust"])
 
         num_rounds = len(eval_trust)
         rounds_per_epoch = num_rounds // n_epoch
         epoch_boundaries = [(i + 1) * rounds_per_epoch for i in range(n_epoch - 1)]
         if(patch):
             n_row = 5
-            eval_patch_tr = EVAL["patch_tr"]
-            eval_patch_vac = EVAL["patch_vac"]
+            eval_patch_tr = PTAS._eval_values(EVAL["patch_tr"])
+            eval_patch_vac = PTAS._eval_values(EVAL["patch_vac"])
             fig, axs = plt.subplots(n_row, 3, figsize=(20, 20))
         else:
             n_row = 3
@@ -713,19 +764,19 @@ class PTAS:
         for digit_label in range(output_size):
             axs[0,0].plot(
                 range(1, num_rounds + 1),
-                [eval_trust[i].value[0, digit_label, 0] for i in range(num_rounds)],
+                [eval_trust[i][0, digit_label, 0] for i in range(num_rounds)],
                 label=f"label = {digit_label}"
             )
 
             axs[0,1].plot(
                 range(1, num_rounds + 1),
-                [eval_trust[i].value[0, digit_label, 2] for i in range(num_rounds)],
+                [eval_trust[i][0, digit_label, 2] for i in range(num_rounds)],
                 label=f"label = {digit_label}"
             )
 
             axs[0,2].plot(
                 range(1, num_rounds + 1),
-                [eval_trust[i].value[0, digit_label, 1] for i in range(num_rounds)],
+                [eval_trust[i][0, digit_label, 1] for i in range(num_rounds)],
                 label=f"label = {digit_label}"
             )
         axs[0,0].set_title('Evolution of trust mass for fully trusted input')
@@ -735,17 +786,17 @@ class PTAS:
         for digit_label in range(output_size):
             axs[1,0].plot(
                 range(1, num_rounds + 1),
-                [eval_untrust[i].value[0, digit_label, 0] for i in range(num_rounds)],
+                [eval_untrust[i][0, digit_label, 0] for i in range(num_rounds)],
                 label=f"label = {digit_label}"
             )
             axs[1,1].plot(
                 range(1, num_rounds + 1),
-                [eval_untrust[i].value[0, digit_label, 2] for i in range(num_rounds)],
+                [eval_untrust[i][0, digit_label, 2] for i in range(num_rounds)],
                 label=f"label = {digit_label}"
             )
             axs[1,2].plot(
                 range(1, num_rounds + 1),
-                [eval_untrust[i].value[0, digit_label, 1] for i in range(num_rounds)],
+                [eval_untrust[i][0, digit_label, 1] for i in range(num_rounds)],
                 label=f"label = {digit_label}"
             )
         axs[1,0].set_title('Evolution of trust mass for vacuous input')
@@ -755,19 +806,19 @@ class PTAS:
         for digit_label in range(output_size):
             axs[2,0].plot(
                 range(1, num_rounds + 1),
-                [eval_distrust[i].value[0, digit_label, 0] for i in range(num_rounds)],
+                [eval_distrust[i][0, digit_label, 0] for i in range(num_rounds)],
                 label=f"label = {digit_label}"
             )
 
             axs[2,1].plot(
                 range(1, num_rounds + 1),
-                [eval_distrust[i].value[0, digit_label, 2] for i in range(num_rounds)],
+                [eval_distrust[i][0, digit_label, 2] for i in range(num_rounds)],
                 label=f"label = {digit_label}"
             )
 
             axs[2,2].plot(
                 range(1, num_rounds + 1),
-                [eval_distrust[i].value[0, digit_label, 1] for i in range(num_rounds)],
+                [eval_distrust[i][0, digit_label, 1] for i in range(num_rounds)],
                 label=f"label = {digit_label}"
             )
         axs[2,0].set_title('Evolution of trust mass for fully distrusted input')
@@ -776,17 +827,17 @@ class PTAS:
 
         if(patch):
             for digit_label in range(output_size):
-                axs[3,0].plot(range(1, num_rounds + 1), [eval_patch_tr[i][0][digit_label].t for i in range(num_rounds)], label=f"label = {digit_label}")
-                axs[3,1].plot(range(1, num_rounds + 1), [eval_patch_tr[i][0][digit_label].u for i in range(num_rounds)], label=f"label = {digit_label}")
-                axs[3,2].plot(range(1, num_rounds + 1), [eval_patch_tr[i][0][digit_label].d for i in range(num_rounds)], label=f"label = {digit_label}")
+                axs[3,0].plot(range(1, num_rounds + 1), [eval_patch_tr[i][0, digit_label, 0] for i in range(num_rounds)], label=f"label = {digit_label}")
+                axs[3,1].plot(range(1, num_rounds + 1), [eval_patch_tr[i][0, digit_label, 2] for i in range(num_rounds)], label=f"label = {digit_label}")
+                axs[3,2].plot(range(1, num_rounds + 1), [eval_patch_tr[i][0, digit_label, 1] for i in range(num_rounds)], label=f"label = {digit_label}")
             axs[3,0].set_title('Evolution of trust mass for patch trusted input')
             axs[3,1].set_title('Evolution of uncertainty mass for patch trusted input')
             axs[3,2].set_title('Evolution of distrust mass for patch trusted input')
 
             for digit_label in range(output_size):
-                axs[4,0].plot(range(1, num_rounds + 1), [eval_patch_vac[i][0][digit_label].t for i in range(num_rounds)], label=f"label = {digit_label}")
-                axs[4,1].plot(range(1, num_rounds + 1), [eval_patch_vac[i][0][digit_label].u for i in range(num_rounds)], label=f"label = {digit_label}")
-                axs[4,2].plot(range(1, num_rounds + 1), [eval_patch_vac[i][0][digit_label].d for i in range(num_rounds)], label=f"label = {digit_label}")
+                axs[4,0].plot(range(1, num_rounds + 1), [eval_patch_vac[i][0, digit_label, 0] for i in range(num_rounds)], label=f"label = {digit_label}")
+                axs[4,1].plot(range(1, num_rounds + 1), [eval_patch_vac[i][0, digit_label, 2] for i in range(num_rounds)], label=f"label = {digit_label}")
+                axs[4,2].plot(range(1, num_rounds + 1), [eval_patch_vac[i][0, digit_label, 1] for i in range(num_rounds)], label=f"label = {digit_label}")
             axs[4,0].set_title('Evolution of trust mass for patch vacuous input')
             axs[4,1].set_title('Evolution of uncertainty mass for patch vacuous input')
             axs[4,2].set_title('Evolution of distrust mass for patch vacuous input')
@@ -811,18 +862,18 @@ class PTAS:
         plt.savefig(fname)
 
     def eval_plot_simpl(EVAL, output_size, title, fname):
-        eval_trust = EVAL["trust"]
-        eval_untrust = EVAL["untrust"]
-        eval_distrust = EVAL["distrust"]
+        eval_trust = PTAS._eval_values(EVAL["trust"])
+        eval_untrust = PTAS._eval_values(EVAL["untrust"])
+        eval_distrust = PTAS._eval_values(EVAL["distrust"])
         timesteps = np.arange(1, len(eval_trust) + 1)
         fig, axs = plt.subplots(1, 3, figsize=(20, 11))
         avg_t = []
         avg_u = []
         avg_d = []
         for i in range(len(eval_trust)):
-            t_vals = [eval_trust[i].value[0, digit_label, 0] for digit_label in range(output_size)]
-            u_vals = [eval_trust[i].value[0, digit_label, 1] for digit_label in range(output_size)]
-            d_vals = [eval_trust[i].value[0, digit_label, 2] for digit_label in range(output_size)]
+            t_vals = [eval_trust[i][0, digit_label, 0] for digit_label in range(output_size)]
+            u_vals = [eval_trust[i][0, digit_label, 1] for digit_label in range(output_size)]
+            d_vals = [eval_trust[i][0, digit_label, 2] for digit_label in range(output_size)]
 
             avg_t.append(np.mean(t_vals))
             avg_u.append(np.mean(u_vals))
@@ -838,9 +889,9 @@ class PTAS:
         avg_u = []
         avg_d = []
         for i in range(len(eval_untrust)):
-            t_vals = [eval_untrust[i].value[0, digit_label, 0] for digit_label in range(output_size)]
-            u_vals = [eval_untrust[i].value[0, digit_label, 1] for digit_label in range(output_size)]
-            d_vals = [eval_untrust[i].value[0, digit_label, 2] for digit_label in range(output_size)]
+            t_vals = [eval_untrust[i][0, digit_label, 0] for digit_label in range(output_size)]
+            u_vals = [eval_untrust[i][0, digit_label, 1] for digit_label in range(output_size)]
+            d_vals = [eval_untrust[i][0, digit_label, 2] for digit_label in range(output_size)]
 
             avg_t.append(np.mean(t_vals))
             avg_u.append(np.mean(u_vals))
@@ -856,9 +907,9 @@ class PTAS:
         avg_u = []
         avg_d = []
         for i in range(len(eval_untrust)):
-            t_vals = [eval_distrust[i].value[0, digit_label, 0] for digit_label in range(output_size)]
-            u_vals = [eval_distrust[i].value[0, digit_label, 1] for digit_label in range(output_size)]
-            d_vals = [eval_distrust[i].value[0, digit_label, 2] for digit_label in range(output_size)]
+            t_vals = [eval_distrust[i][0, digit_label, 0] for digit_label in range(output_size)]
+            u_vals = [eval_distrust[i][0, digit_label, 1] for digit_label in range(output_size)]
+            d_vals = [eval_distrust[i][0, digit_label, 2] for digit_label in range(output_size)]
 
             avg_t.append(np.mean(t_vals))
             avg_u.append(np.mean(u_vals))

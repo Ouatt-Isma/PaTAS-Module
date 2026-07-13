@@ -556,7 +556,7 @@ def opinions_to_array(grid) -> np.ndarray:
 
 
 # ================================================================== #
-#  Vectorized (NumPy) variants                                        #
+#  Vectorized variants (NumPy or PyTorch)                             #
 #                                                                     #
 #  Each function operates on opinion arrays of shape (..., 3) where  #
 #  the last axis stores [b/trust, d/disbelief, u/uncertainty].        #
@@ -566,22 +566,62 @@ def opinions_to_array(grid) -> np.ndarray:
 #  These implement the SAME mathematical formulas as the scalar       #
 #  operators above and are used by TensorTO for batch computation.    #
 #  Having them here keeps the formulas in one place and avoids drift. #
+#                                                                     #
+#  Backend dispatch: every function accepts either np.ndarray or      #
+#  torch.Tensor inputs and returns the same type, so the PTAS         #
+#  runtime can run on GPU while legacy numpy callers keep working.    #
 # ================================================================== #
 
 _EPS_VEC: float = 1e-12
 
+try:
+    import torch as _torch
+except ImportError:  # torch optional: numpy-only environments still work
+    _torch = None
 
-def _normalize_vec(v: np.ndarray, eps: float = _EPS_VEC) -> np.ndarray:
+
+def _is_torch(x) -> bool:
+    return _torch is not None and isinstance(x, _torch.Tensor)
+
+
+def _stack_last(parts):
+    """Stack a list of same-backend arrays along a new last axis."""
+    if _is_torch(parts[0]):
+        return _torch.stack(parts, -1)
+    return np.stack(parts, axis=-1)
+
+
+def _where(cond, a, b):
+    if _is_torch(cond):
+        return _torch.where(cond, a, b)
+    return np.where(cond, a, b)
+
+
+def _clip_min(x, lo: float):
+    if _is_torch(x):
+        return _torch.clamp(x, min=lo)
+    return np.clip(x, lo, None)
+
+
+def _minimum(a, b):
+    if _is_torch(a):
+        return _torch.minimum(a, b)
+    return np.minimum(a, b)
+
+
+def _normalize_vec(v, eps: float = _EPS_VEC):
     """Normalise an (..., 3) opinion array so  b + d + u = 1  along axis=-1."""
+    if _is_torch(v):
+        s = v.sum(-1, keepdim=True)
+        return v / _torch.clamp(s, min=eps)
     s = v.sum(axis=-1, keepdims=True)
     return v / np.clip(s, eps, None)
 
 
-def averaging_fusion_vec(op1: np.ndarray, op2: np.ndarray,
-                         eps: float = _EPS_VEC) -> np.ndarray:
+def averaging_fusion_vec(op1, op2, eps: float = _EPS_VEC):
     """
     Vectorized 2-source Averaging Belief Fusion (ABF).
-    op1, op2 : (..., 3) arrays  [b, d, u].
+    op1, op2 : (..., 3) arrays  [b, d, u]  (numpy or torch).
     Implements the same formula as averaging_fusion() for scalar Opinion.
 
     Case II (≥1 non-dogmatic):
@@ -595,15 +635,14 @@ def averaging_fusion_vec(op1: np.ndarray, op2: np.ndarray,
     b1, d1, u1 = op1[..., 0], op1[..., 1], op1[..., 2]
     b2, d2, u2 = op2[..., 0], op2[..., 1], op2[..., 2]
     both_dog = (u1 < eps) & (u2 < eps)
-    denom = np.where(both_dog, 1.0, u1 + u2)
-    b = np.where(both_dog, 0.5*(b1+b2), (b1*u2 + b2*u1) / denom)
-    d = np.where(both_dog, 0.5*(d1+d2), (d1*u2 + d2*u1) / denom)
-    u = np.where(both_dog, 0.0,          2.0*u1*u2      / denom)
-    return _normalize_vec(np.stack([b, d, u], axis=-1))
+    denom = _where(both_dog, 1.0, u1 + u2)
+    b = _where(both_dog, 0.5*(b1+b2), (b1*u2 + b2*u1) / denom)
+    d = _where(both_dog, 0.5*(d1+d2), (d1*u2 + d2*u1) / denom)
+    u = _where(both_dog, 0.0,          2.0*u1*u2      / denom)
+    return _normalize_vec(_stack_last([b, d, u]))
 
 
-def cumulative_fusion_vec(op1: np.ndarray, op2: np.ndarray,
-                          eps: float = _EPS_VEC) -> np.ndarray:
+def cumulative_fusion_vec(op1, op2, eps: float = _EPS_VEC):
     """
     Vectorized 2-source aleatory Cumulative Belief Fusion (aCBF).
     Implements cumulative_fusion() for scalar Opinion.
@@ -620,15 +659,14 @@ def cumulative_fusion_vec(op1: np.ndarray, op2: np.ndarray,
     b2, d2, u2 = op2[..., 0], op2[..., 1], op2[..., 2]
     both_dog = (u1 < eps) & (u2 < eps)
     raw_denom = u1 + u2 - u1*u2
-    denom = np.where(both_dog, 1.0, np.where(np.abs(raw_denom) < eps, eps, raw_denom))
-    b = np.where(both_dog, 0.5*(b1+b2), (b1*u2 + b2*u1) / denom)
-    d = np.where(both_dog, 0.5*(d1+d2), (d1*u2 + d2*u1) / denom)
-    u = np.where(both_dog, 0.0,          u1*u2          / denom)
-    return _normalize_vec(np.stack([b, d, u], axis=-1))
+    denom = _where(both_dog, 1.0, _where(abs(raw_denom) < eps, eps, raw_denom))
+    b = _where(both_dog, 0.5*(b1+b2), (b1*u2 + b2*u1) / denom)
+    d = _where(both_dog, 0.5*(d1+d2), (d1*u2 + d2*u1) / denom)
+    u = _where(both_dog, 0.0,          u1*u2          / denom)
+    return _normalize_vec(_stack_last([b, d, u]))
 
 
-def weighted_belief_fusion_vec(op1: np.ndarray, op2: np.ndarray,
-                                eps: float = _EPS_VEC) -> np.ndarray:
+def weighted_belief_fusion_vec(op1, op2, eps: float = _EPS_VEC):
     """
     Vectorized 2-source Weighted Belief Fusion (WBF).
     Implements weighted_belief_fusion() for scalar Opinion.
@@ -648,19 +686,19 @@ def weighted_belief_fusion_vec(op1: np.ndarray, op2: np.ndarray,
     both_vac = (u1 > 1.0 - eps) & (u2 > 1.0 - eps)      # Case 3
     case1    = ~both_dog & ~both_vac
     raw_denom = u1 + u2 - 2.0*u1*u2
-    denom = np.where(case1, np.where(np.abs(raw_denom) < eps, eps, raw_denom), 1.0)
+    denom = _where(case1, _where(abs(raw_denom) < eps, eps, raw_denom), 1.0)
     bw1 = (1.0 - u1) * u2
     bw2 = (1.0 - u2) * u1
-    b = np.where(both_dog, 0.5*(b1+b2),
-        np.where(both_vac, 0.0,
+    b = _where(both_dog, 0.5*(b1+b2),
+        _where(both_vac, 0.0,
                  (b1*bw1 + b2*bw2) / denom))
-    d = np.where(both_dog, 0.5*(d1+d2),
-        np.where(both_vac, 0.0,
+    d = _where(both_dog, 0.5*(d1+d2),
+        _where(both_vac, 0.0,
                  (d1*bw1 + d2*bw2) / denom))
-    u = np.where(both_dog, 0.0,
-        np.where(both_vac, 1.0,
+    u = _where(both_dog, 0.0,
+        _where(both_vac, 1.0,
                  (2.0 - u1 - u2) * u1*u2 / denom))
-    return _normalize_vec(np.stack([b, d, u], axis=-1))
+    return _normalize_vec(_stack_last([b, d, u]))
 
 
 def ccf_fusion_vec(op1: np.ndarray, op2: np.ndarray,
@@ -693,28 +731,28 @@ def ccf_fusion_vec(op1: np.ndarray, op2: np.ndarray,
     b2, d2, u2 = op2[..., 0], op2[..., 1], op2[..., 2]
 
     # Step 1: consensus
-    b_cons = np.minimum(b1, b2)
-    d_cons = np.minimum(d1, d2)
+    b_cons = _minimum(b1, b2)
+    d_cons = _minimum(d1, d2)
     b_res1 = b1 - b_cons;  b_res2 = b2 - b_cons
     d_res1 = d1 - d_cons;  d_res2 = d2 - d_cons
 
     # Step 2: compromise masses
     b_comp_x    = b_res1*u2 + b_res2*u1 + b_res1*b_res2
     b_comp_xbar = d_res1*u2 + d_res2*u1 + d_res1*d_res2
-    b_comp_X    = np.maximum(0.0,
+    b_comp_X    = _clip_min(
                       (b_res1 + d_res1)*(b_res2 + d_res2)
-                      - b_res1*b_res2 - d_res1*d_res2)
+                      - b_res1*b_res2 - d_res1*d_res2, 0.0)
     u_pre       = u1 * u2
     b_comp_total = b_comp_x + b_comp_xbar + b_comp_X + u_pre
 
     # Step 3: normalisation factor η
     numerator = 1.0 - b_cons - d_cons - u_pre
-    eta = np.where(b_comp_total < eps, 0.0, numerator / np.where(b_comp_total < eps, 1.0, b_comp_total))
+    eta = _where(b_comp_total < eps, 0.0, numerator / _where(b_comp_total < eps, 1.0, b_comp_total))
 
     b_out = b_cons + eta * b_comp_x
     d_out = d_cons + eta * b_comp_xbar
     u_out = u_pre  + eta * b_comp_X
-    return _normalize_vec(np.stack([b_out, d_out, u_out], axis=-1))
+    return _normalize_vec(_stack_last([b_out, d_out, u_out]))
 
 
 def constraint_fusion_vec(op1: np.ndarray, op2: np.ndarray,
@@ -740,20 +778,19 @@ def constraint_fusion_vec(op1: np.ndarray, op2: np.ndarray,
 
     K     = b1*d2 + d1*b2
     total_conflict = K > 1.0 - eps
-    safe_denom = np.where(total_conflict, 1.0, 1.0 - K)
+    safe_denom = _where(total_conflict, 1.0, 1.0 - K)
 
     b_num = b1*b2 + b1*u2 + u1*b2
     d_num = d1*d2 + d1*u2 + u1*d2
     u_num = u1*u2
 
-    b_out = np.where(total_conflict, 0.0, b_num / safe_denom)
-    d_out = np.where(total_conflict, 0.0, d_num / safe_denom)
-    u_out = np.where(total_conflict, 1.0, u_num / safe_denom)
-    return _normalize_vec(np.stack([b_out, d_out, u_out], axis=-1))
+    b_out = _where(total_conflict, 0.0, b_num / safe_denom)
+    d_out = _where(total_conflict, 0.0, d_num / safe_denom)
+    u_out = _where(total_conflict, 1.0, u_num / safe_denom)
+    return _normalize_vec(_stack_last([b_out, d_out, u_out]))
 
 
-def multiply_vec(op1: np.ndarray, op2: np.ndarray,
-                 a: float = 0.5) -> np.ndarray:
+def multiply_vec(op1, op2, a: float = 0.5):
     """
     Vectorized binomial multiplication (⊙), base rates assumed equal to a=0.5.
     Implements multiply() for scalar Opinion.
@@ -768,12 +805,11 @@ def multiply_vec(op1: np.ndarray, op2: np.ndarray,
     denom = max(EPS, 1.0 - a * a)          # 0.75 when a = 0.5
     b = b1*b2 + ((1.0-a)*a*b1*u2 + (1.0-a)*a*b2*u1) / denom
     d = d1 + d2 - d1*d2
-    u = np.clip(1.0 - b - d, 0.0, None)
-    return _normalize_vec(np.stack([b, d, u], axis=-1))
+    u = _clip_min(1.0 - b - d, 0.0)
+    return _normalize_vec(_stack_last([b, d, u]))
 
 
-def discount_vec(omega_A: np.ndarray, omega_x: np.ndarray,
-                 a: float = 0.5) -> np.ndarray:
+def discount_vec(omega_A, omega_x, a: float = 0.5):
     """
     Vectorized probability-sensitive trust discounting.
     omega_A, omega_x : (..., 3) arrays  [b, d, u].
@@ -791,12 +827,11 @@ def discount_vec(omega_A: np.ndarray, omega_x: np.ndarray,
     p = wt + wu * a
     t = p * xt
     d = p * xd
-    u = np.clip(1.0 - t - d, 0.0, None)
-    return _normalize_vec(np.stack([t, d, u], axis=-1))
+    u = _clip_min(1.0 - t - d, 0.0)
+    return _normalize_vec(_stack_last([t, d, u]))
 
 
-def bpq_vec(r: np.ndarray, s: np.ndarray,
-            W: float = 2.0, a: float = 0.5) -> np.ndarray:
+def bpq_vec(r, s, W: float = 2.0, a: float = 0.5):
     """
     Vectorized Baseline-Prior Quantification (BPQ).
     Implements bpq() for scalar Opinion, applied element-wise.
@@ -807,14 +842,14 @@ def bpq_vec(r: np.ndarray, s: np.ndarray,
     denom = W + r + s
     b = r / denom
     d = s / denom
-    u = np.full_like(b, W) / denom
-    return np.stack([b, d, u], axis=-1)
+    u = W / denom
+    return _stack_last([b, d, u])
 
 
-def deduce_vec(op_x: np.ndarray,
-               op_n_given_y: np.ndarray,
-               op_n_given_not_y: np.ndarray,
-               a: float = 0.5) -> np.ndarray:
+def deduce_vec(op_x,
+               op_n_given_y,
+               op_n_given_not_y,
+               a: float = 0.5):
     """
     Vectorized simplified inferential deduction.
     Implements deduce() for scalar Opinion, applied element-wise.
