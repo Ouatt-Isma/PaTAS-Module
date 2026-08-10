@@ -28,6 +28,7 @@ in the same MessageObject format used by the MLP client.
 """
 
 import os
+import pickle
 import sys
 
 folder_path = f"{os.getcwd()}/"
@@ -300,6 +301,42 @@ class ConvNet:
             self.send_in_chunks(obj)
             self._close_ptas_socket()
         return history
+
+    def save_model(self, path: str) -> None:
+        """Save all weight layers (omega order) as numpy arrays keyed W1/b1..Wn/bn."""
+        weights = {}
+        i = 1
+        for blk in self._blocks:
+            for w, b in blk["weights"]:
+                weights[f"W{i}"] = w.detach().cpu().numpy()
+                weights[f"b{i}"] = b.detach().cpu().numpy()
+                i += 1
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, "wb") as f:
+            pickle.dump(weights, f)
+        print(f"[NN] Model saved to {path}")
+
+    def load_model(self, path: str) -> None:
+        """Load weights saved by save_model into the spec-built layers.
+
+        Raises ValueError if the file's layer count doesn't match the current
+        specs; torch raises on per-layer shape mismatch.
+        """
+        with open(path, "rb") as f:
+            weights = pickle.load(f)
+        i = 1
+        with torch.no_grad():
+            for blk in self._blocks:
+                for w, b in blk["weights"]:
+                    if f"W{i}" not in weights:
+                        raise ValueError(
+                            f"{path} has fewer weight layers than the current specs")
+                    w.copy_(self._to_tensor(weights[f"W{i}"]))
+                    b.copy_(self._to_tensor(weights[f"b{i}"]).reshape(b.shape))
+                    i += 1
+        if f"W{i}" in weights:
+            raise ValueError(f"{path} has more weight layers than the current specs")
+        print(f"[NN] Model loaded from {path}")
 
     def end(self):
         if self.ptas:
