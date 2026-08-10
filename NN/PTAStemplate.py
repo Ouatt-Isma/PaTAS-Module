@@ -12,6 +12,7 @@ from concrete.TensorTO import (
     fill as tfill,
     _t102,
     _is_torch,
+    depth_normalize_vec,
 )
 
 sys.path.append(os.getcwd())
@@ -95,6 +96,7 @@ class PTAS:
     tensor_dtype=np.float32,
     no_round = None,
     device=None,
+    fuse_method="average",   # trust-revision fusion: average | cumulative | weighted
 ):
         """
         Initialize the PTAS with essential components.
@@ -119,6 +121,7 @@ class PTAS:
         self.patch = patch
         self.batch_size = None
         self.no_round = no_round
+        self.fuse_method = fuse_method
 
         # NEW: tensor mode
         self.use_tensor = use_tensor
@@ -485,6 +488,7 @@ class PTAS:
             use_tensor=True,
             tensor_dtype=self.tensor_dtype,
             device=self.device,
+            fuse_method=self.fuse_method,
         )
 
         def IPTA(Tx):
@@ -631,6 +635,17 @@ class PTAS:
         mean_op = v.reshape(-1, 3).mean(0)
         return normalize_tensor(mean_op)
 
+    def depth_normalized_aggregation(self, Tys):
+        """
+        Aggregate like aggregation(), then undo the geometric depth decay
+        so scores are comparable across architectures of different depth:
+        the committed mass (b + d) is taken to the power 1/L with the b:d
+        ratio preserved, where L = len(self.omega_thetas) is the number of
+        trust-propagation steps ("trust retention per layer").
+        """
+        agg = self.aggregation(Tys)
+        return depth_normalize_vec(agg, len(self.omega_thetas))
+
     def apply_trust_revision(
         self,
         data: list,
@@ -708,10 +723,10 @@ class PTAS:
 
         # 3) op_theta: fuse weight columns with evidence
         W = as_tensor(self.omega_thetas[layer].value, device=self.device)           # (n,out,3)
-        W_new = op_theta(W, op_theta_y)              # (n,out,3)
+        W_new = op_theta(W, op_theta_y, method=self.fuse_method)   # (n,out,3)
 
-        # 4) update step (binMult + avFuse)
-        W_new = update(W_new, W_new, lr)             # (n,out,3)
+        # 4) update step (binMult + fuse via self.fuse_method)
+        W_new = update(W_new, W_new, lr, method=self.fuse_method)  # (n,out,3)
 
         # 5) update_2: extra binMult constraints using Tx and initial y opinion
         Tx_layer = as_tensor(self._tx_for_layer(layer).value, device=self.device)  # (ni,1,3)

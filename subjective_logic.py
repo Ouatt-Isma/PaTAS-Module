@@ -544,6 +544,44 @@ def deduce(omega_y: Opinion,
 
 
 # ------------------------------------------------------------------ #
+#  Depth normalization                                               #
+# ------------------------------------------------------------------ #
+def depth_normalize(omega: Opinion, L: int) -> Opinion:
+    """
+    Undo the geometric depth decay of an opinion propagated through L
+    trust-propagation layers.
+
+    Each PaTAS layer scales belief AND disbelief by the same discount
+    factor p ≤ 1 (see discount_vec), so the committed mass m = b + d
+    decays geometrically with depth while the b:d ratio is depth-
+    invariant.  The normalized opinion takes the per-layer geometric
+    mean of the committed mass and redistributes it at the original
+    b:d ratio:
+
+        m' = (b + d)^(1/L)
+        b' = m' · b / (b + d)
+        d' = m' · d / (b + d)
+        u' = 1 − m'
+
+    Properties: L = 1 is the identity; a vacuous opinion stays vacuous;
+    the b:d verdict is untouched.  Scores become comparable across
+    depths ("trust retention per processing step") but live on a
+    compressed scale: vacuous weights retain p = 0.5 per layer, so
+    m' → 0.5 rather than 0 for deep networks.
+    """
+    if L < 1:
+        raise ValueError(f"L must be >= 1, got {L}")
+    m = omega.b + omega.d
+    if m < EPS:
+        return Opinion(0.0, 0.0, 1.0, omega.a)
+    m_norm = m ** (1.0 / L)
+    return Opinion(m_norm * omega.b / m,
+                   m_norm * omega.d / m,
+                   max(0.0, 1.0 - m_norm),
+                   omega.a)
+
+
+# ------------------------------------------------------------------ #
 #  Convenience: NumPy <-> Opinion grid helpers                       #
 # ------------------------------------------------------------------ #
 def opinions_to_array(grid) -> np.ndarray:
@@ -866,3 +904,26 @@ def deduce_vec(op_x,
     notPy = 1.0 - Py
     blended = Py * op_n_given_y + notPy * op_n_given_not_y
     return _normalize_vec(blended)
+
+
+def depth_normalize_vec(op, L: int, eps: float = _EPS_VEC):
+    """
+    Vectorized depth normalization.
+    Implements depth_normalize() for (..., 3) opinion arrays [b, d, u]
+    (numpy or torch).
+
+        m' = (b + d)^(1/L),  b' = m'·b/m,  d' = m'·d/m,  u' = 1 − m'
+
+    Vacuous entries (m < eps) stay vacuous; L = 1 is the identity.
+    """
+    if L < 1:
+        raise ValueError(f"L must be >= 1, got {L}")
+    b, d = op[..., 0], op[..., 1]
+    m = b + d
+    vac = m < eps
+    safe_m = _where(vac, 1.0, m)
+    m_norm = safe_m ** (1.0 / L)
+    b_out = _where(vac, 0.0, m_norm * b / safe_m)
+    d_out = _where(vac, 0.0, m_norm * d / safe_m)
+    u_out = _where(vac, 1.0, _clip_min(1.0 - m_norm, 0.0))
+    return _normalize_vec(_stack_last([b_out, d_out, u_out]))

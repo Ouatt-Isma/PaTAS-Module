@@ -69,6 +69,7 @@ class TestCaseConfig:
     x_dataset: str | None = None
     y_dataset: str | None = None
     noise_level: float | None = None
+    fuse_method: str = "average"   # trust-revision fusion: average | cumulative | weighted
 
 lr_cancer = 0.2
 def get_lr_cancer(epoch):
@@ -378,6 +379,8 @@ def ptas_evaluation(ptas: PTAS, input_dim: int, datapath: str):
             a = ptas.apply_feedforward(TensorArrayTO(tfill((1, input_dim), method=method)))
             print(format_value(a))
             print("Aggregated Value: ", to_numpy(PTAS.aggregation(a)))
+            print(f"Depth-Normalized Value (L={len(ptas.omega_thetas)}): ",
+                  to_numpy(ptas.depth_normalized_aggregation(a)))
             print()
             # store as numpy so the pickle loads on machines without a GPU
             writeto(TensorArrayTO(a.to_numpy()), datapath + f"\\{out_name}")
@@ -401,10 +404,13 @@ def start_ptas(cfg, ready_event=None, post_training_callback=None, force_retrain
     structure = all_dims
     arch_str = "_".join(str(h) for h in hidden_list)
 
+    fuse_method = getattr(cfg, "fuse_method", "average") or "average"
+    fuse_suffix = "" if fuse_method == "average" else f"_fuse_{fuse_method}"
     datapath = (
         f"results/PTAS_Eval_{cfg.dataset}_{arch_str}_{cfg.x_trust}_{cfg.y_trust}"
         f"_eps_{cfg.epsilon_low}"
         f"_PathSize_{cfg.mnist_patch_size if cfg.mnist_poisoned_soph else 'None'}"
+        f"{fuse_suffix}"
     )
     omega_path = os.path.join(datapath, "omega_arrays.pkl")
 
@@ -448,6 +454,7 @@ def start_ptas(cfg, ready_event=None, post_training_callback=None, force_retrain
         epsilon_up=cfg.epsilon_up,
         eval=True,
         no_round=cfg.no_round,
+        fuse_method=fuse_method,
     )
 
     if not force_retrain and os.path.exists(omega_path):
@@ -554,10 +561,13 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
     # When PTAS omega is already cached, start_ptas never binds a socket.
     # Disable PTAS communication in the NN so training always completes and
     # metrics.txt is written, and to skip the useless gradient-stream replay.
+    _fuse_method = getattr(cfg, "fuse_method", "average") or "average"
+    _fuse_suffix = "" if _fuse_method == "average" else f"_fuse_{_fuse_method}"
     ptas_omega_path = os.path.join(
         f"results/PTAS_Eval_{cfg.dataset}_{arch_str}_{cfg.x_trust}_{cfg.y_trust}"
         f"_eps_{cfg.epsilon_low}"
-        f"_PathSize_{cfg.mnist_patch_size if cfg.mnist_poisoned_soph else 'None'}",
+        f"_PathSize_{cfg.mnist_patch_size if cfg.mnist_poisoned_soph else 'None'}"
+        f"{_fuse_suffix}",
         "omega_arrays.pkl",
     )
     ptas_omega_cached = not force_retrain and os.path.exists(ptas_omega_path)

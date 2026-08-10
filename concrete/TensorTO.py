@@ -13,6 +13,7 @@ from patas_module.subjective_logic import (
     multiply_vec,
     deduce_vec,
     discount_vec,
+    depth_normalize_vec,
     _normalize_vec,
 )
 
