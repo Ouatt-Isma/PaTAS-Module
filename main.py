@@ -358,7 +358,7 @@ def format_value(obj):
 
 
 def ptas_evaluation(ptas: PTAS, input_dim: int, datapath: str):
-    log_path = datapath + "\\evaluation_log.txt"
+    log_path = os.path.join(datapath, "evaluation_log.txt")
     logger = TeeLogger(log_path)
     sys.stdout = logger
 
@@ -383,11 +383,11 @@ def ptas_evaluation(ptas: PTAS, input_dim: int, datapath: str):
                   to_numpy(ptas.depth_normalized_aggregation(a)))
             print()
             # store as numpy so the pickle loads on machines without a GPU
-            writeto(TensorArrayTO(a.to_numpy()), datapath + f"\\{out_name}")
+            writeto(TensorArrayTO(a.to_numpy()), os.path.join(datapath, out_name))
 
         # Save omega_arrays so they can be reloaded without retraining
         writeto([ot.to_numpy().copy() for ot in ptas.omega_thetas],
-                datapath + "\\omega_arrays.pkl")
+                os.path.join(datapath, "omega_arrays.pkl"))
 
     finally:
         sys.stdout = logger.terminal  # always restore stdout
@@ -496,7 +496,7 @@ def start_ptas(cfg, ready_event=None, post_training_callback=None, force_retrain
 
     print("Evaluating PTAS outputs...")
     ptas_evaluation(ptas, cfg.input_dim, datapath=datapath)
-    PTAS.eval_plot(ptas.EVAL, cfg.output_dim, None, f"{datapath}\\plot_ptas.pdf", n_epoch=cfg.epochs)
+    PTAS.eval_plot(ptas.EVAL, cfg.output_dim, None, os.path.join(datapath, "plot_ptas.pdf"), n_epoch=cfg.epochs)
     return ptas
 
 def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = False):
