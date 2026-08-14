@@ -69,7 +69,7 @@ class TestCaseConfig:
     x_dataset: str | None = None
     y_dataset: str | None = None
     noise_level: float | None = None
-    fuse_method: str = "average"   # trust-revision fusion: average | cumulative | weighted
+    fuse_method: str = "average"   # trust-revision fusion: average | cumulative | weighted | compromise | constraint
 
 lr_cancer = 0.2
 def get_lr_cancer(epoch):

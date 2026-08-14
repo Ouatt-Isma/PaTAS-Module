@@ -96,7 +96,7 @@ class PTAS:
     tensor_dtype=np.float32,
     no_round = None,
     device=None,
-    fuse_method="average",   # trust-revision fusion: average | cumulative | weighted
+    fuse_method="average",   # trust-revision fusion: average | cumulative | weighted | compromise | constraint
 ):
         """
         Initialize the PTAS with essential components.
