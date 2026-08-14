@@ -10,6 +10,8 @@ from patas_module.subjective_logic import (
     averaging_fusion_vec,
     cumulative_fusion_vec,
     weighted_belief_fusion_vec,
+    ccf_fusion_vec,
+    constraint_fusion_vec,
     multiply_vec,
     deduce_vec,
     discount_vec,
@@ -20,7 +22,7 @@ from patas_module.subjective_logic import (
 # We assume base rate a=0.5 everywhere (your code asserts/uses this a lot).
 A0 = 0.5
 
-FuseMethod = Literal["average", "cumulative", "weighted"]
+FuseMethod = Literal["average", "cumulative", "weighted", "compromise", "constraint"]
 fMethod = "average"  # default fuse method for TensorArrayTO; can be overridden per-instance
 
 # Aliases so internal code can use the short names unchanged.
@@ -188,14 +190,42 @@ def weighted_fuse_pair(op1, op2):
     return weighted_belief_fusion_vec(op1, op2)
 
 
+def compromise_fuse_pair(op1, op2):
+    """
+    Vectorized 2-source Consensus & Compromise Fusion (CCF).
+    Delegates to subjective_logic.ccf_fusion_vec (van der Heijden et al. 2018,
+    Definition 5). Unlike average/cumulative/weighted, CCF splits each
+    opinion into a consensus part (min of the two beliefs) and a residual
+    compromise part, so agreement between the two sources is preserved
+    exactly rather than blended away — the operator to reach for when
+    fusing opinions that may partially agree/disagree rather than being
+    independent noisy estimates of the same quantity.
+    """
+    return ccf_fusion_vec(op1, op2)
+
+
+def constraint_fuse_pair(op1, op2):
+    """
+    Vectorized 2-source Belief Constraint Fusion (BCF / Dempster's rule).
+    Delegates to subjective_logic.constraint_fusion_vec (van der Heijden
+    et al. 2018, Definition 6). Amplifies agreement and suppresses conflict
+    (mass on trust from one source and distrust from the other is discarded
+    as "conflict" K and the rest renormalized) — the most aggressive of the
+    five operators toward confident, low-uncertainty outputs, and the one
+    most sensitive to strongly conflicting per-source opinions.
+    """
+    return constraint_fusion_vec(op1, op2)
+
+
 def fuse_pair(op1, op2, method: FuseMethod = fMethod):
     """
-    Dispatch to av_fuse_pair, cum_fuse_pair, or weighted_fuse_pair.
+    Dispatch to av_fuse_pair, cum_fuse_pair, weighted_fuse_pair,
+    compromise_fuse_pair, or constraint_fuse_pair.
 
     Parameters
     ----------
     op1, op2 : ndarray or torch.Tensor (..., 3)
-    method   : "average" | "cumulative" | "weighted"
+    method   : "average" | "cumulative" | "weighted" | "compromise" | "constraint"
     """
     if method == "average":
         return av_fuse_pair(op1, op2)
@@ -203,8 +233,14 @@ def fuse_pair(op1, op2, method: FuseMethod = fMethod):
         return cum_fuse_pair(op1, op2)
     elif method == "weighted":
         return weighted_fuse_pair(op1, op2)
+    elif method == "compromise":
+        return compromise_fuse_pair(op1, op2)
+    elif method == "constraint":
+        return constraint_fuse_pair(op1, op2)
     else:
-        raise ValueError(f"Unknown fuse method: {method!r}. Choose 'average', 'cumulative', or 'weighted'.")
+        raise ValueError(
+            f"Unknown fuse method: {method!r}. Choose 'average', 'cumulative', "
+            f"'weighted', 'compromise', or 'constraint'.")
 
 
 def bin_mult(op1, op2):
@@ -339,8 +375,8 @@ class TensorArrayTO:
     Parameters
     ----------
     value       : ndarray or torch.Tensor (...,3)
-    fuse_method : "average" | "cumulative" | "weighted" — controls all
-                  internal fusion calls.
+    fuse_method : "average" | "cumulative" | "weighted" | "compromise" |
+                  "constraint" — controls all internal fusion calls.
     """
 
     def __init__(self, value, fuse_method: FuseMethod = fMethod):
