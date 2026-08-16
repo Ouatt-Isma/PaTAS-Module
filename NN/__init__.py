@@ -6,7 +6,12 @@
 # so we expose it lazily via __getattr__ rather than importing eagerly.
 
 from NN.PTAStemplate import PTAS          # noqa: E402
-from NN.primaryNN import NeuralNetwork    # noqa: E402
+try:
+    # The training client needs torch; trust propagation does not — keep
+    # the numpy-only promise of the PTAS layer intact when torch is absent.
+    from NN.primaryNN import NeuralNetwork    # noqa: E402
+except ImportError:
+    NeuralNetwork = None
 from NN import utils                      # noqa: E402
 
 __all__ = ["PTAS", "NeuralNetwork", "datasets", "utils"]

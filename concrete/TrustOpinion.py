@@ -539,9 +539,14 @@ class TrustOpinion:
         return TrustOpinion(t, d, u, base_rate=0.5)
 
     def weigFuseGen(opinions: List['TrustOpinion']) -> 'TrustOpinion':
-        weights = [1-opinions[i] for i in range(len(opinions))]
-        assert len(opinions) == len(weights), "Mismatched opinions and weights"
+        """Confidence-weighted average: each opinion weighted by its
+        certainty 1−u (the WBF weighting); all-vacuous input falls back to
+        the plain average.  (The previous `1 - opinion` weight expression
+        was a TypeError on any call — TrustOpinion has no __rsub__.)"""
+        weights = [1.0 - op.u for op in opinions]
         total_weight = sum(weights)
+        if total_weight <= 0:
+            return TrustOpinion.avFuseGen(opinions)
         t = sum(op.t * w for op, w in zip(opinions, weights)) / total_weight
         d = sum(op.d * w for op, w in zip(opinions, weights)) / total_weight
         u = sum(op.u * w for op, w in zip(opinions, weights)) / total_weight

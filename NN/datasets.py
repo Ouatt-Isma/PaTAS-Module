@@ -9,6 +9,10 @@ import matplotlib.pyplot as plt
 #   cv2        → load_gtsrb_from_kaggle()
 #   tensorflow → load_colored_mnist()  (load_mnist uses the npz cache instead)
 
+# Fixed seed for the load_data() corruption draws (feature/label noise), so
+# every process that loads the same (dataset, x_how, y_how, noise_level)
+# combination sees the identical corrupted dataset.
+_CORRUPTION_SEED = 20260816
 
 color = (0.2, 0.2, 0.2)
 color_pois = (0.2, 0.2, 0.2)
@@ -745,8 +749,20 @@ def load_data(testcase="cancer", x_how="clean", y_how="clean",
     else:
         output_size = y_train.shape[1]
     if not poisoned_patch:
-        X_train = load_X(X_train, x_how, input_size, noise_level=noise_level)
-        y_train = load_y(y_train, y_how, output_size, noise_level=noise_level)
+        # Seed the corruption draws (and restore the global RNG state after):
+        # load_data runs independently in the NN-training process, the PTAS
+        # replay process and the evaluation scripts, and unseeded draws gave
+        # each of them a DIFFERENT corruption realization of the "same"
+        # dataset — e.g. the cached base model was trained on one set of
+        # flipped labels while the PaTAS omegas were derived from another.
+        if x_how != "clean" or y_how != "clean":
+            _rng_state = np.random.get_state()
+            np.random.seed(_CORRUPTION_SEED)
+            try:
+                X_train = load_X(X_train, x_how, input_size, noise_level=noise_level)
+                y_train = load_y(y_train, y_how, output_size, noise_level=noise_level)
+            finally:
+                np.random.set_state(_rng_state)
     try:
         encoder = OneHotEncoder(sparse=False)
     except:
