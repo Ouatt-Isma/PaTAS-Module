@@ -53,7 +53,13 @@ from patas_module.subjective_logic import (                      # noqa: E402
 
 # ── PATAS classes ─────────────────────────────────────────────────────────────
 from NN.PTAStemplate import PTAS                    # noqa: E402
-from NN.primaryNN import NeuralNetwork              # noqa: E402
+try:
+    # NeuralNetwork (training client) genuinely needs torch; the trust
+    # propagation itself does not — keep the numpy-only promise of the
+    # subjective-logic / PTAS layers intact when torch is absent.
+    from NN.primaryNN import NeuralNetwork          # noqa: E402
+except ImportError:
+    NeuralNetwork = None
 from concrete.TrustOpinion import TrustOpinion      # noqa: E402
 from concrete.ArrayTO import ArrayTO                # noqa: E402
 from concrete.TensorTO import TensorArrayTO         # noqa: E402

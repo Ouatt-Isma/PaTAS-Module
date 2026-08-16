@@ -119,6 +119,37 @@ DATASET_META: dict[str, dict] = {
 TrustGen = Callable[[int, int], ArrayTO]
 
 
+# ---------------------------------------------------------------------------
+# Cache-directory naming — single source of truth.
+#
+# The noise level is part of the cache key: two scenarios that differ only in
+# the label-flip / feature-noise rate are different datasets, and without the
+# suffix a sweep over rates would silently reuse the first rate's caches.
+# ``noise_level=None`` keeps the historical names, so every existing cache
+# trained without an explicit rate stays valid.
+# ---------------------------------------------------------------------------
+
+def _nl_suffix(noise_level) -> str:
+    return "" if noise_level is None else f"_nl{noise_level:g}"
+
+
+def nn_cache_dir(dataset: str, arch_str: str, x_trust, y_trust,
+                 patch=None, noise_level=None) -> str:
+    return (f"results/NN_Train_{dataset}_{arch_str}_{x_trust}_{y_trust}"
+            f"_PathSize_{patch if patch else 'None'}{_nl_suffix(noise_level)}")
+
+
+def ptas_cache_dir(dataset: str, arch_str: str, x_trust, y_trust, eps,
+                   patch=None, fuse_method: str = "average",
+                   noise_level=None) -> str:
+    fuse_method = fuse_method or "average"
+    fuse_suffix = "" if fuse_method == "average" else f"_fuse_{fuse_method}"
+    return (f"results/PTAS_Eval_{dataset}_{arch_str}_{x_trust}_{y_trust}"
+            f"_eps_{eps}"
+            f"_PathSize_{patch if patch else 'None'}"
+            f"{_nl_suffix(noise_level)}{fuse_suffix}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -405,12 +436,10 @@ def start_ptas(cfg, ready_event=None, post_training_callback=None, force_retrain
     arch_str = "_".join(str(h) for h in hidden_list)
 
     fuse_method = getattr(cfg, "fuse_method", "average") or "average"
-    fuse_suffix = "" if fuse_method == "average" else f"_fuse_{fuse_method}"
-    datapath = (
-        f"results/PTAS_Eval_{cfg.dataset}_{arch_str}_{cfg.x_trust}_{cfg.y_trust}"
-        f"_eps_{cfg.epsilon_low}"
-        f"_PathSize_{cfg.mnist_patch_size if cfg.mnist_poisoned_soph else 'None'}"
-        f"{fuse_suffix}"
+    datapath = ptas_cache_dir(
+        cfg.dataset, arch_str, cfg.x_trust, cfg.y_trust, cfg.epsilon_low,
+        patch=cfg.mnist_patch_size if cfg.mnist_poisoned_soph else None,
+        fuse_method=fuse_method, noise_level=cfg.noise_level,
     )
     omega_path = os.path.join(datapath, "omega_arrays.pkl")
 
@@ -540,9 +569,10 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
     input_size = cfg.input_dim
     output_size = cfg.output_dim
 
-    datapath = (
-        f"results/NN_Train_{cfg.dataset}_{arch_str}_{cfg.x_trust}_{cfg.y_trust}"
-        f"_PathSize_{cfg.mnist_patch_size if cfg.mnist_poisoned_soph else 'None'}"
+    datapath = nn_cache_dir(
+        cfg.dataset, arch_str, cfg.x_trust, cfg.y_trust,
+        patch=cfg.mnist_patch_size if cfg.mnist_poisoned_soph else None,
+        noise_level=cfg.noise_level,
     )
     os.makedirs(datapath, exist_ok=True)
     nn_model_path = os.path.join(datapath, "nn_model.pkl")
@@ -562,12 +592,12 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
     # Disable PTAS communication in the NN so training always completes and
     # metrics.txt is written, and to skip the useless gradient-stream replay.
     _fuse_method = getattr(cfg, "fuse_method", "average") or "average"
-    _fuse_suffix = "" if _fuse_method == "average" else f"_fuse_{_fuse_method}"
     ptas_omega_path = os.path.join(
-        f"results/PTAS_Eval_{cfg.dataset}_{arch_str}_{cfg.x_trust}_{cfg.y_trust}"
-        f"_eps_{cfg.epsilon_low}"
-        f"_PathSize_{cfg.mnist_patch_size if cfg.mnist_poisoned_soph else 'None'}"
-        f"{_fuse_suffix}",
+        ptas_cache_dir(
+            cfg.dataset, arch_str, cfg.x_trust, cfg.y_trust, cfg.epsilon_low,
+            patch=cfg.mnist_patch_size if cfg.mnist_poisoned_soph else None,
+            fuse_method=_fuse_method, noise_level=cfg.noise_level,
+        ),
         "omega_arrays.pkl",
     )
     ptas_omega_cached = not force_retrain and os.path.exists(ptas_omega_path)
