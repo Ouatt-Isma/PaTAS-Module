@@ -223,6 +223,82 @@ def load_mnist(small=False):
     X_test  = X_test.reshape(-1, 28 * 28)
     return X_train, X_test, y_train, y_test
 
+def fashion_norm_stats(root="data"):
+    """(mean, std) used to standardize Fashion-MNIST features — computed
+    once from the raw [0,1] train split and cached to a JSON side file (same
+    contract as gtsrb_norm_stats)."""
+    import json as _json
+    stats_path = os.path.join(root, "fashion_norm.json")
+    if os.path.exists(stats_path):
+        with open(stats_path, encoding="utf-8") as fh:
+            d = _json.load(fh)
+        return float(d["mean"]), float(d["std"])
+    load_fashion(root=root)
+    with open(stats_path, encoding="utf-8") as fh:
+        d = _json.load(fh)
+    return float(d["mean"]), float(d["std"])
+
+
+def load_fashion(root="data", small=False):
+    """Load Fashion-MNIST (10 classes, 28×28 grayscale), flattened and
+    STANDARDIZED with its own train-split statistics (same recipe as
+    load_mnist/load_gtsrb).  Cached to an .npz; first call needs
+    torchvision + internet — on offline compute nodes warm the cache from a
+    login node.
+
+    Returns X_train, X_test, y_train, y_test with X of shape (n, 784).
+    """
+    import json as _json
+    cache = os.path.join(root, "fashion_all_flat.npz")
+    if os.path.exists(cache):
+        d = np.load(cache)
+        x_tr, y_tr, x_te, y_te = d["x_train"], d["y_train"], d["x_test"], d["y_test"]
+    else:
+        from torchvision.datasets import FashionMNIST  # noqa: PLC0415
+        tr = FashionMNIST(root=root, train=True, download=True)
+        te = FashionMNIST(root=root, train=False, download=True)
+        x_tr = np.asarray(tr.data, dtype=np.uint8)
+        y_tr = np.asarray(tr.targets, dtype=np.int64)
+        x_te = np.asarray(te.data, dtype=np.uint8)
+        y_te = np.asarray(te.targets, dtype=np.int64)
+        os.makedirs(root, exist_ok=True)
+        np.savez_compressed(cache, x_train=x_tr, y_train=y_tr,
+                            x_test=x_te, y_test=y_te)
+        print(f"[FashionMNIST] cached raw arrays → {cache}")
+
+    X_train = x_tr.astype(np.float32).reshape(-1, 28 * 28) / 255.0
+    X_test = x_te.astype(np.float32).reshape(-1, 28 * 28) / 255.0
+
+    stats_path = os.path.join(root, "fashion_norm.json")
+    if os.path.exists(stats_path):
+        with open(stats_path, encoding="utf-8") as fh:
+            st = _json.load(fh)
+        mu, sd = float(st["mean"]), float(st["std"])
+    else:
+        mu, sd = float(X_train.mean()), float(max(X_train.std(), 1e-6))
+        with open(stats_path, "w", encoding="utf-8") as fh:
+            _json.dump({"mean": mu, "std": sd}, fh)
+        print(f"[FashionMNIST] cached normalization stats → {stats_path}")
+    X_train = ((X_train - mu) / sd).astype(np.float32)
+    X_test = ((X_test - mu) / sd).astype(np.float32)
+
+    if small:
+        n = 20000
+        X_train, y_tr = X_train[:n], y_tr[:n]
+    return X_train, X_test, y_tr, y_te
+
+
+def load_mnist_test_fashionized(root="data"):
+    """MNIST test split standardized with FASHION-MNIST's train statistics —
+    the OOD counterpart when Fashion-MNIST is the in-distribution dataset
+    (an OOD set must pass through the ID preprocessing pipeline).  MNIST's
+    own standardization is inverted back to raw [0,1] first."""
+    _, X_test, _, _ = load_mnist()
+    raw = X_test * 0.3081 + 0.1307          # invert load_mnist's constants
+    mu, sd = fashion_norm_stats(root=root)
+    return ((raw - mu) / sd).astype(np.float32)
+
+
 def load_fashion_mnist_test(root="data"):
     """FashionMNIST test split preprocessed EXACTLY like load_mnist output
     (x/255, standardized with the MNIST μ=0.1307/σ=0.3081, flattened) — an
@@ -809,6 +885,9 @@ def load_data(testcase="cancer", x_how="clean", y_how="clean",
 
     elif testcase == "mnist":
         X_train, X_test, y_train, y_test = load_mnist()
+
+    elif testcase == "fashion":
+        X_train, X_test, y_train, y_test = load_fashion()
 
     elif testcase == "gtsrb":
         X_train, X_test, y_train, y_test = load_gtsrb()
