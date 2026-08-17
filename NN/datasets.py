@@ -223,6 +223,43 @@ def load_mnist(small=False):
     X_test  = X_test.reshape(-1, 28 * 28)
     return X_train, X_test, y_train, y_test
 
+def load_fashion_mnist_test(root="data"):
+    """FashionMNIST test split preprocessed EXACTLY like load_mnist output
+    (x/255, standardized with the MNIST μ=0.1307/σ=0.3081, flattened) — an
+    OOD set must pass through the ID preprocessing pipeline unchanged.
+
+    Cached to an .npz; the first call needs torchvision + internet, so on
+    clusters whose compute nodes are offline run it once on a login node:
+        python -c "from NN.datasets import load_fashion_mnist_test as f; f()"
+
+    Returns (X, y) with X of shape (10000, 784) float32.
+    """
+    cache = os.path.join(root, "fashion_test_flat.npz")
+    if os.path.exists(cache):
+        d = np.load(cache)
+        raw, y = d["x"], d["y"]
+    else:
+        from torchvision.datasets import FashionMNIST  # noqa: PLC0415
+        ds = FashionMNIST(root=root, train=False, download=True)
+        raw = np.asarray(ds.data, dtype=np.uint8)
+        y = np.asarray(ds.targets, dtype=np.int64)
+        os.makedirs(root, exist_ok=True)
+        np.savez_compressed(cache, x=raw, y=y)
+        print(f"[FashionMNIST] cached raw arrays → {cache}")
+    X = raw.astype(np.float32) / 255.0
+    X = (X - 0.1307) / 0.3081
+    return X.reshape(-1, 28 * 28), y
+
+
+def load_cifar10_gray_test(root="data", img_size=32):
+    """CIFAR-10 test split as grayscale 32×32, flattened, in [0,1] — the OOD
+    counterpart for GTSRB (same preprocessing contract as load_gtsrb).
+    Reuses the load_cifar10 npz cache."""
+    _, X_test, _, _ = load_cifar10(root=root)
+    return X_test.reshape(-1, 3, img_size, img_size).mean(axis=1) \
+                 .reshape(-1, img_size * img_size).astype(np.float32)
+
+
 def load_uncertain_mnist():
     X_train, X_test, y_train, y_test = load_mnist()
     for i in range(len(X_train)):
