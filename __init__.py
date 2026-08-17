@@ -51,21 +51,43 @@ from patas_module.subjective_logic import (                      # noqa: E402
     _normalize_vec,
 )
 
-# ── PATAS classes ─────────────────────────────────────────────────────────────
-from NN.PTAStemplate import PTAS                    # noqa: E402
-try:
-    # NeuralNetwork (training client) genuinely needs torch; the trust
-    # propagation itself does not — keep the numpy-only promise of the
-    # subjective-logic / PTAS layers intact when torch is absent.
-    from NN.primaryNN import NeuralNetwork          # noqa: E402
-except ImportError:
-    NeuralNetwork = None
-from concrete.TrustOpinion import TrustOpinion      # noqa: E402
-from concrete.ArrayTO import ArrayTO                # noqa: E402
-from concrete.TensorTO import TensorArrayTO         # noqa: E402
-from PTASTemp.ptasInterface import PTASInterface    # noqa: E402
-from PTASTemp.messageObject import MessageObject    # noqa: E402
-from PTASTemp.mode import Mode                      # noqa: E402
+# ── PATAS classes — loaded lazily (PEP 562) ──────────────────────────────────
+# Eager imports here re-entered this package mid-initialization whenever a
+# sub-module was the first thing imported (e.g. NN.datasets → NN/__init__ →
+# PTAStemplate → TensorTO → patas_module.subjective_logic → this file →
+# "from NN.PTAStemplate import PTAS" on the half-initialized module),
+# raising "cannot import name 'PTAS' from partially initialized module".
+# Lazy loading breaks the cycle at the package level for every entry point
+# while keeping ``from patas_module import PTAS`` etc. working unchanged.
+# NeuralNetwork (the training client) genuinely needs torch; the trust
+# propagation does not — it resolves to None when torch is absent, keeping
+# the numpy-only promise of the subjective-logic / PTAS layers intact.
+_LAZY_CLASSES = {
+    "PTAS":          ("NN.PTAStemplate", "PTAS"),
+    "NeuralNetwork": ("NN.primaryNN", "NeuralNetwork"),
+    "TrustOpinion":  ("concrete.TrustOpinion", "TrustOpinion"),
+    "ArrayTO":       ("concrete.ArrayTO", "ArrayTO"),
+    "TensorArrayTO": ("concrete.TensorTO", "TensorArrayTO"),
+    "PTASInterface": ("PTASTemp.ptasInterface", "PTASInterface"),
+    "MessageObject": ("PTASTemp.messageObject", "MessageObject"),
+    "Mode":          ("PTASTemp.mode", "Mode"),
+}
+
+
+def __getattr__(name):
+    if name in _LAZY_CLASSES:
+        import importlib
+        mod_name, attr = _LAZY_CLASSES[name]
+        try:
+            value = getattr(importlib.import_module(mod_name), attr)
+        except ImportError:
+            if name == "NeuralNetwork":
+                value = None
+            else:
+                raise
+        globals()[name] = value    # cache: __getattr__ runs once per name
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __version__ = "0.1.0"
 __all__ = [
