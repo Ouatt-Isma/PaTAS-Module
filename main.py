@@ -8,7 +8,7 @@ from typing import Callable
 import numpy as np
 import multiprocessing
 import time
-from NN.datasets import mnist_get_inverse_scaling, mnist_get_scaling
+from NN.datasets import mnist_get_inverse_scaling, mnist_get_scaling, gtsrb_get_scaling
 from NN.utils import writeto
 from concrete.TensorTO import TensorArrayTO, fill as tfill, as_tensor, to_numpy
 
@@ -111,7 +111,9 @@ TEST_CASES: dict[str, TestCaseConfig] = {
 DATASET_META: dict[str, dict] = {
     "mnist": {"img_size": 28, "scale_patch": mnist_get_scaling,
               "output_dim": 10, "pois_pair": (6, 9), "control_class": 3},
-    "gtsrb": {"img_size": 32, "scale_patch": lambda v: v,   # GTSRB pixels are raw [0,1]
+    # GTSRB features are standardized on load (NN.datasets.load_gtsrb), so a
+    # raw patch value must be mapped through the same train-split statistics.
+    "gtsrb": {"img_size": 32, "scale_patch": gtsrb_get_scaling,
               "output_dim": 43, "pois_pair": (6, 9), "control_class": 3},
 }
 

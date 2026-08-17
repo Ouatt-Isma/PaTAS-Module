@@ -252,12 +252,15 @@ def load_fashion_mnist_test(root="data"):
 
 
 def load_cifar10_gray_test(root="data", img_size=32):
-    """CIFAR-10 test split as grayscale 32×32, flattened, in [0,1] — the OOD
-    counterpart for GTSRB (same preprocessing contract as load_gtsrb).
+    """CIFAR-10 test split as grayscale 32×32, flattened, standardized with
+    GTSRB's train statistics — the OOD counterpart for GTSRB must pass
+    through the identical ID preprocessing pipeline (see load_gtsrb).
     Reuses the load_cifar10 npz cache."""
     _, X_test, _, _ = load_cifar10(root=root)
-    return X_test.reshape(-1, 3, img_size, img_size).mean(axis=1) \
-                 .reshape(-1, img_size * img_size).astype(np.float32)
+    X = X_test.reshape(-1, 3, img_size, img_size).mean(axis=1) \
+              .reshape(-1, img_size * img_size)
+    mu, sd = gtsrb_norm_stats(root=root, img_size=img_size)
+    return ((X - mu) / sd).astype(np.float32)
 
 
 def load_uncertain_mnist():
@@ -462,12 +465,12 @@ def load_poisoned_mnist(X_train, y_train, patch_size, patch_value=1.0):
 def load_poisoned_gtsrb(X_train, y_train, patch_size, patch_value=1.0):
     """Poison one third of GTSRB with a 6↔9 trigger-patch backdoor.
 
-    GTSRB pixels are already in [0, 1] (no standardisation), so the patch
-    value is used as-is.
+    GTSRB features are standardized on load (see load_gtsrb), so the raw
+    patch value is mapped through the same train-split statistics.
     """
     return load_poisoned_generic(
         X_train, y_train, patch_size,
-        scaled_patch=patch_value,
+        scaled_patch=gtsrb_get_scaling(patch_value),
         img_size=32, flip_map={6: 9, 9: 6},
     )
 
@@ -593,16 +596,46 @@ def load_poisoned_all(X_train, y_train, patch_value=1.0, patch_size=5, img_size=
     return X_combined, y_combined, n_poisoned
 
 
-def load_gtsrb(img_size=32, small=False, root="data"):
-    """Load GTSRB (43 classes) as grayscale img_size×img_size, flattened, in [0,1].
+def gtsrb_norm_stats(root="data", img_size=32):
+    """(mean, std) used to standardize GTSRB features — computed once from
+    the raw [0,1] train split and cached to a JSON side file so every
+    consumer (load_gtsrb, the CIFAR-gray OOD counterpart, patch scaling)
+    uses identical constants."""
+    import json as _json
+    stats_path = os.path.join(root, f"gtsrb_gray{img_size}_norm.json")
+    if os.path.exists(stats_path):
+        with open(stats_path, encoding="utf-8") as fh:
+            d = _json.load(fh)
+        return float(d["mean"]), float(d["std"])
+    # Computed (and the side file written) inside load_gtsrb.
+    load_gtsrb(img_size=img_size, root=root)
+    with open(stats_path, encoding="utf-8") as fh:
+        d = _json.load(fh)
+    return float(d["mean"]), float(d["std"])
 
-    Uses torchvision's built-in GTSRB downloader (no Kaggle credentials or cv2
-    required) and caches the preprocessed arrays to an .npz so subsequent
-    loads — including the second process in PTAS+client runs — are instant.
+
+def gtsrb_get_scaling(x, root="data"):
+    """Map a raw [0,1] pixel value into the standardized GTSRB scale
+    (counterpart of mnist_get_scaling, e.g. for trigger-patch values)."""
+    mu, sd = gtsrb_norm_stats(root=root)
+    return (x - mu) / sd
+
+
+def load_gtsrb(img_size=32, small=False, root="data"):
+    """Load GTSRB (43 classes) as grayscale img_size×img_size, flattened and
+    STANDARDIZED with train-split statistics (same recipe as load_mnist).
+
+    Raw [0,1] grayscale GTSRB carries large brightness/contrast variance
+    across signs; without standardization the plain-SGD MLP of the PaTAS
+    scenarios stalls around ~45 % accuracy. The raw arrays stay cached in
+    the .npz; standardization is applied on load, with the constants saved
+    to a JSON side file (see gtsrb_norm_stats) so the OOD counterpart is
+    pushed through the identical pipeline.
 
     Returns X_train, X_test, y_train, y_test with X flattened to
     (n, img_size*img_size).
     """
+    import json as _json
     cache = os.path.join(root, f"gtsrb_gray{img_size}.npz")
     if os.path.exists(cache):
         d = np.load(cache)
@@ -629,6 +662,21 @@ def load_gtsrb(img_size=32, small=False, root="data"):
         np.savez_compressed(cache, x_train=X_train, y_train=y_train,
                             x_test=X_test, y_test=y_test)
         print(f"[GTSRB] cached preprocessed arrays → {cache}")
+
+    # Standardize with train-split statistics (raw arrays stay in the npz).
+    stats_path = os.path.join(root, f"gtsrb_gray{img_size}_norm.json")
+    if os.path.exists(stats_path):
+        with open(stats_path, encoding="utf-8") as fh:
+            st = _json.load(fh)
+        mu, sd = float(st["mean"]), float(st["std"])
+    else:
+        mu, sd = float(X_train.mean()), float(max(X_train.std(), 1e-6))
+        os.makedirs(root, exist_ok=True)
+        with open(stats_path, "w", encoding="utf-8") as fh:
+            _json.dump({"mean": mu, "std": sd}, fh)
+        print(f"[GTSRB] cached normalization stats → {stats_path}")
+    X_train = ((X_train - mu) / sd).astype(np.float32)
+    X_test = ((X_test - mu) / sd).astype(np.float32)
 
     # The torchvision train split is ordered by class folder; a class-sorted
     # training set breaks SGD (single-class batches). Shuffle deterministically
