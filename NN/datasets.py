@@ -14,6 +14,16 @@ import matplotlib.pyplot as plt
 # combination sees the identical corrupted dataset.
 _CORRUPTION_SEED = 20260816
 
+
+def _atomic_savez(path, **arrays):
+    """np.savez_compressed with write-to-temp + atomic rename, so an
+    interrupted write (Ctrl-C, kill, full disk) can never leave a corrupt
+    half-written cache that poisons every later load."""
+    assert path.endswith(".npz")
+    tmp = path[:-4] + ".tmp.npz"
+    np.savez_compressed(tmp, **arrays)
+    os.replace(tmp, path)
+
 color = (0.2, 0.2, 0.2)
 color_pois = (0.2, 0.2, 0.2)
 
@@ -262,8 +272,8 @@ def load_fashion(root="data", small=False):
         x_te = np.asarray(te.data, dtype=np.uint8)
         y_te = np.asarray(te.targets, dtype=np.int64)
         os.makedirs(root, exist_ok=True)
-        np.savez_compressed(cache, x_train=x_tr, y_train=y_tr,
-                            x_test=x_te, y_test=y_te)
+        _atomic_savez(cache, x_train=x_tr, y_train=y_tr,
+                      x_test=x_te, y_test=y_te)
         print(f"[FashionMNIST] cached raw arrays → {cache}")
 
     X_train = x_tr.astype(np.float32).reshape(-1, 28 * 28) / 255.0
@@ -320,7 +330,7 @@ def load_fashion_mnist_test(root="data"):
         raw = np.asarray(ds.data, dtype=np.uint8)
         y = np.asarray(ds.targets, dtype=np.int64)
         os.makedirs(root, exist_ok=True)
-        np.savez_compressed(cache, x=raw, y=y)
+        _atomic_savez(cache, x=raw, y=y)
         print(f"[FashionMNIST] cached raw arrays → {cache}")
     X = raw.astype(np.float32) / 255.0
     X = (X - 0.1307) / 0.3081
@@ -735,8 +745,8 @@ def load_gtsrb(img_size=32, small=False, root="data"):
         X_train, y_train = _split_to_arrays("train")
         X_test, y_test = _split_to_arrays("test")
         os.makedirs(root, exist_ok=True)
-        np.savez_compressed(cache, x_train=X_train, y_train=y_train,
-                            x_test=X_test, y_test=y_test)
+        _atomic_savez(cache, x_train=X_train, y_train=y_train,
+                      x_test=X_test, y_test=y_test)
         print(f"[GTSRB] cached preprocessed arrays → {cache}")
 
     # Standardize with train-split statistics (raw arrays stay in the npz).
@@ -787,7 +797,7 @@ def load_cifar10(root="data", small=False):
         xte = te.data
         yte = np.asarray(te.targets, dtype=np.int64)
         os.makedirs(root, exist_ok=True)
-        np.savez_compressed(cache, x_train=xtr, y_train=ytr, x_test=xte, y_test=yte)
+        _atomic_savez(cache, x_train=xtr, y_train=ytr, x_test=xte, y_test=yte)
         print(f"[CIFAR10] cached raw arrays → {cache}")
 
     def _prep(x):
