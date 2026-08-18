@@ -18,8 +18,13 @@ import time
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-np.random.seed(42)
-torch.manual_seed(42)
+# Deterministic by default (seed 42, the historical behavior); override via
+# the PATAS_SEED environment variable for genuine multi-seed protocols.
+# Without the override, every "independent" run trains from bit-identical
+# initialization, which silently voids any mean/std over repeated runs.
+_PATAS_SEED = int(os.environ.get("PATAS_SEED", "42"))
+np.random.seed(_PATAS_SEED)
+torch.manual_seed(_PATAS_SEED)
 DEBUG = False
 
 
