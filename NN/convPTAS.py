@@ -15,7 +15,12 @@ distrust fills) and an approximation otherwise (e.g. patch-distrust inputs).
 Additional operator mappings:
     ReLU / pooling      → identity in opinion space
     residual skip add   → averaging-belief fusion of block input and output
-    IPTA (path pruning) → not defined for conv layers; GenIPTA raises.
+    IPTA (path pruning) → activity-weighted: under weight sharing a path
+                          selects filter APPLICATIONS rather than weights,
+                          so each channel's contribution is weighted by the
+                          fraction of spatial positions where it actually
+                          fired (exact reduction to MLP row pruning for
+                          binary activities; see GenIPTA).
 
 Trust revision reuses the base PTAS machinery unchanged: each conv layer's
 gradient arrives flattened to (c_in·k² + 1, c_out), exactly like a dense
@@ -75,9 +80,33 @@ class PTASConv(PTAS):
         return self._tx_tiled_history[layer]
 
     def GenIPTA(self, inference_path):
-        raise NotImplementedError(
-            "IPTA path pruning is not defined for conv layers (conv-PTAS prototype)"
-        )
+        """Conv IPTA: activity-weighted path-conditioned trust propagation.
+
+        ``inference_path`` is the list of per-omega channel activity vectors
+        returned by ConvNet.forward(getactivated=True) for ONE sample: one
+        (cout,)-shaped array per weight layer except the classifier head,
+        holding the fraction of spatial positions where each channel's
+        post-ReLU output was positive.
+
+        Under weight sharing a path cannot select weights, only
+        applications of the filter, so the MLP's binary row pruning
+        generalizes to weighting each channel's contribution by its
+        participation degree (TensorArrayTO.weighted_dot): with binary
+        activities this reduces exactly to the MLP GenIPTA semantics, and
+        channels the real forward pass never activated contribute nothing.
+        """
+        acts = [np.asarray(a, dtype=np.float32).reshape(-1) for a in inference_path]
+        n_omegas = len(self.omega_thetas)
+        if len(acts) != n_omegas - 1:
+            raise ValueError(
+                f"expected {n_omegas - 1} activity vectors "
+                f"(one per weight layer except the classifier head), "
+                f"got {len(acts)}")
+
+        def IPTA(Tx):
+            return self._feedforward_impl(Tx, activities=acts, tmp=False)
+
+        return IPTA
 
     # ── opinion feedforward ──────────────────────────────────────────────────
     def apply_feedforward(self, Tx, tmp=True):
@@ -86,6 +115,14 @@ class PTASConv(PTAS):
              fused per input channel (uniform-trust reduction).
         Returns the output-class opinions (batch, n_classes, 3).
         """
+        return self._feedforward_impl(Tx, activities=None, tmp=tmp)
+
+    def _feedforward_impl(self, Tx, activities=None, tmp=True):
+        """Shared trust feedforward.  With ``activities`` (one channel
+        participation vector per omega except the last), each layer's input
+        contributions are weighted by the producing channel's activity —
+        the conv IPTA path conditioning; input channels and bias rows keep
+        weight 1, mirroring the MLP GenIPTA which keeps all input rows."""
         Tx_t = self._to_tensor_opinions(Tx)
         v = Tx_t.value
         batch = v.shape[0]
@@ -116,7 +153,15 @@ class PTASConv(PTAS):
             nonlocal w
             tiled = _tile(cur.value, tile)
             tiled_inputs.append(TensorArrayTO(tiled))
-            out = TensorArrayTO.dot(TensorArrayTO(_cat1(tiled, one)), self.omega_thetas[w])
+            with_bias = TensorArrayTO(_cat1(tiled, one))
+            if activities is not None and w > 0:
+                # rows follow the c·k²+u·k+v flattening: repeat the producing
+                # channel's activity over its k² (or spatial) rows; bias = 1.
+                row_w = np.concatenate([np.repeat(activities[w - 1], tile),
+                                        np.ones(1, dtype=np.float32)])
+                out = TensorArrayTO.weighted_dot(with_bias, self.omega_thetas[w], row_w)
+            else:
+                out = TensorArrayTO.dot(with_bias, self.omega_thetas[w])
             w += 1
             outputs.append(out)
             return out
