@@ -904,6 +904,30 @@ def load_data(testcase="cancer", x_how="clean", y_how="clean",
 
     elif testcase == "cifar10":
         X_train, X_test, y_train, y_test = load_cifar10()
+        # Per-channel standardization with train statistics (side file so
+        # every process shares the constants). Applied HERE and not inside
+        # load_cifar10, so the grayscale OOD counterpart for GTSRB keeps
+        # its raw [0,1] contract. Without it, the deeper batchnorm-free
+        # conv net diverges at recipe learning rates.
+        import json as _json
+        _stats_path = os.path.join("data", "cifar10_norm.json")
+        if os.path.exists(_stats_path):
+            with open(_stats_path, encoding="utf-8") as _fh:
+                _st = _json.load(_fh)
+            _mu = np.asarray(_st["mean"], dtype=np.float32)
+            _sd = np.asarray(_st["std"], dtype=np.float32)
+        else:
+            _tr = X_train.reshape(-1, 3, 32 * 32)
+            _mu = _tr.mean(axis=(0, 2)).astype(np.float32)
+            _sd = np.maximum(_tr.std(axis=(0, 2)), 1e-6).astype(np.float32)
+            os.makedirs("data", exist_ok=True)
+            with open(_stats_path, "w", encoding="utf-8") as _fh:
+                _json.dump({"mean": _mu.tolist(), "std": _sd.tolist()}, _fh)
+            print(f"[CIFAR10] cached normalization stats → {_stats_path}")
+        X_train = ((X_train.reshape(-1, 3, 32 * 32) - _mu[None, :, None])
+                   / _sd[None, :, None]).reshape(-1, 3 * 32 * 32)
+        X_test = ((X_test.reshape(-1, 3, 32 * 32) - _mu[None, :, None])
+                  / _sd[None, :, None]).reshape(-1, 3 * 32 * 32)
 
     elif testcase == "cancer":
         data = load_breast_cancer()
