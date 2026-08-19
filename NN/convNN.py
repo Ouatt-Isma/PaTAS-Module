@@ -165,22 +165,36 @@ class ConvNet:
         return torch.as_tensor(np.ascontiguousarray(arr), dtype=torch.float32,
                                device=self.device)
 
-    def _forward_logits(self, xt: torch.Tensor) -> torch.Tensor:
+    def _forward_logits(self, xt: torch.Tensor, activities=None) -> torch.Tensor:
+        """Forward pass; when ``activities`` is a list, appends one channel
+        activity vector (batch, cout) per weight layer except the classifier
+        head: the fraction of spatial positions where the channel's
+        consumer-facing post-ReLU output is positive.  This is the conv
+        analogue of the MLP activation path (a binary neuron generalizes to
+        a participation degree under weight sharing)."""
         h = xt.view(-1, self.in_channels, self.img_size, self.img_size)
+
+        def _act(t):
+            if activities is not None:
+                activities.append((t > 0).float().mean(dim=(2, 3)))
+
         for blk in self._blocks:
             sp = blk["sp"]
             kind = sp["kind"]
             if kind == "conv":
                 (w, b), = blk["weights"]
                 h = F.relu(F.conv2d(h, w, b, padding=sp["k"] // 2))
+                _act(h)
                 if sp.get("pool", True):
                     h = F.avg_pool2d(h, 2)
             elif kind == "resconv":
                 (w1, b1), (w2, b2) = blk["weights"]
                 pad = sp["k"] // 2
                 r = F.relu(F.conv2d(h, w1, b1, padding=pad))
+                _act(r)                              # omega 1 of the block
                 r = F.conv2d(r, w2, b2, padding=pad)
                 h = F.relu(h + r)                    # residual skip connection
+                _act(h)                              # omega 2: block output
                 if sp.get("pool", True):
                     h = F.avg_pool2d(h, 2)
             else:  # dense
@@ -188,15 +202,30 @@ class ConvNet:
                 h = h.reshape(h.shape[0], -1) @ W + b
         return h
 
-    def forward(self, X, chunk=4096):
-        """Softmax probabilities; evaluates in chunks to bound activation memory."""
+    def forward(self, X, chunk=4096, getactivated=False):
+        """Softmax probabilities; evaluates in chunks to bound activation
+        memory.  With ``getactivated=True`` also returns the per-layer
+        channel activity fractions (list of (n, cout) float arrays, one per
+        weight layer except the classifier head) used by conv IPTA."""
         outs = []
+        acts_chunks = []
         with torch.no_grad():
             n = X.shape[0] if hasattr(X, "shape") else len(X)
             for i in range(0, max(n, 1), chunk):
-                logits = self._forward_logits(self._to_tensor(X[i:i + chunk]))
+                acts = [] if getactivated else None
+                logits = self._forward_logits(self._to_tensor(X[i:i + chunk]),
+                                              activities=acts)
                 outs.append(torch.softmax(logits, dim=-1).cpu().numpy())
-        return np.concatenate(outs, axis=0) if len(outs) > 1 else outs[0]
+                if getactivated:
+                    acts_chunks.append([a.cpu().numpy() for a in acts])
+        probs = np.concatenate(outs, axis=0) if len(outs) > 1 else outs[0]
+        if not getactivated:
+            return probs
+        n_layers = len(acts_chunks[0])
+        activities = [np.concatenate([c[l] for c in acts_chunks], axis=0)
+                      if len(acts_chunks) > 1 else acts_chunks[0][l]
+                      for l in range(n_layers)]
+        return probs, activities
 
     def predict(self, X):
         return np.argmax(self.forward(X), axis=1)
@@ -219,13 +248,40 @@ class ConvNet:
                     grads.append((g, b.grad.reshape(1, -1)))
         return grads
 
+    def _augment_batch(self, xb: torch.Tensor) -> torch.Tensor:
+        """Standard CIFAR augmentation on a flattened batch: pad-4 random
+        crop + random horizontal flip, vectorized on device."""
+        b = xb.shape[0]
+        h = xb.view(b, self.in_channels, self.img_size, self.img_size)
+        padded = F.pad(h, (4, 4, 4, 4))
+        # per-sample random crop offsets via gather-free unfold indexing
+        ox = torch.randint(0, 9, (b,), device=h.device)
+        oy = torch.randint(0, 9, (b,), device=h.device)
+        idx_y = (oy[:, None] + torch.arange(self.img_size, device=h.device)[None, :])
+        idx_x = (ox[:, None] + torch.arange(self.img_size, device=h.device)[None, :])
+        cropped = padded[torch.arange(b, device=h.device)[:, None, None, None],
+                         torch.arange(self.in_channels, device=h.device)[None, :, None, None],
+                         idx_y[:, None, :, None],
+                         idx_x[:, None, None, :]]
+        flip = torch.rand(b, device=h.device) < 0.5
+        cropped[flip] = torch.flip(cropped[flip], dims=[3])
+        return cropped.reshape(b, -1)
+
     def train(self, X_train, y_train, X_test=None, y_test=None,
-              epochs=10, batch_size=128, shuffle=True, lr_scheduler=None):
-        """Mini-batch SGD with autograd; streams per-layer deltas to PTAS."""
+              epochs=10, batch_size=128, shuffle=True, lr_scheduler=None,
+              momentum=0.0, weight_decay=0.0, augment=False):
+        """Mini-batch SGD with autograd; streams per-layer deltas to PTAS.
+
+        ``momentum``/``weight_decay``/``augment`` default to the legacy
+        plain-SGD behavior (so every cached scenario stays reproducible);
+        the CIFAR recipe passes momentum=0.9, weight_decay=5e-4,
+        augment=True to reach a defensible accuracy.
+        """
         if lr_scheduler is None:
             lr_scheduler = lambda e: 0.05
         history = {"train_acc": [], "test_acc": []}
         n = X_train.shape[0]
+        velocity = [torch.zeros_like(p) for p in self._params] if momentum > 0 else None
 
         if self.ptas:
             obj = MessageObject(Mode.TRAINING, {
@@ -249,6 +305,8 @@ class ConvNet:
 
             for i in tqdm(range(0, n, batch_size)):
                 X_batch = self._to_tensor(X_epoch[i:i + batch_size])
+                if augment:
+                    X_batch = self._augment_batch(X_batch)
                 y_batch = y_epoch[i:i + batch_size]
                 y_t = self._to_tensor(y_batch)
 
@@ -284,8 +342,19 @@ class ConvNet:
                         self.send_in_chunks(obj)
 
                 with torch.no_grad():
-                    for p in self._params:
-                        p -= lr * p.grad
+                    if velocity is not None:
+                        for p, v in zip(self._params, velocity):
+                            g = p.grad
+                            if weight_decay > 0:
+                                g = g + weight_decay * p
+                            v.mul_(momentum).add_(g)
+                            p -= lr * v
+                    else:
+                        for p in self._params:
+                            g = p.grad
+                            if weight_decay > 0:
+                                g = g + weight_decay * p
+                            p -= lr * g
 
             train_acc = float(np.mean(self.predict(X_train) == np.argmax(y_train, axis=1)))
             if X_test is not None and y_test is not None:

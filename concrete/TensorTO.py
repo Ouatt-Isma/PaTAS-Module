@@ -466,3 +466,49 @@ class TensorArrayTO:
         w_lr = bin_mult(self.value, lr)
         fused = self._fuse(w_lr, prev.value)
         return TensorArrayTO(fused, fuse_method=self.fuse_method)
+
+    @staticmethod
+    def weighted_dot(A: "TensorArrayTO", B: "TensorArrayTO", row_weights):
+        """
+        Activity-weighted opinion product — the IPTA generalization for
+        layers whose units carry a participation degree instead of a binary
+        activation (convolutional channels: the fraction of spatial
+        positions where the channel actually fired).
+
+        A: (batch, K, 3) input opinions;  B: (K, J, 3) weight opinions;
+        row_weights: (K,) nonnegative participation weights.
+
+        Computes the weighted-mean analogue of ``dot``:
+
+            b_out[n, j] = sum_k w_k * b_in[n, k] * p[k, j] / sum_k w_k
+
+        with p the projected probability of the weight opinion. For binary
+        row_weights this is EXACTLY ``dot`` applied to the row-pruned
+        matrices (the MLP GenIPTA semantics); zero total weight yields the
+        vacuous opinion.
+        """
+        a = A.value
+        w = B.value
+        if _is_torch(w) and not _is_torch(a):
+            a = as_tensor(a, device=w.device)
+        elif _is_torch(a) and not _is_torch(w):
+            w = as_tensor(w, device=a.device)
+        rw = as_tensor(np.asarray(row_weights, dtype=np.float32),
+                       device=w.device if _is_torch(w) else None) \
+            if _is_torch(w) else np.asarray(row_weights, dtype=np.float32)
+
+        p = w[..., 0] + 0.5 * w[..., 2]           # (K, J)
+        wsum = rw.sum()
+        if float(to_numpy(wsum)) <= 0.0:
+            shape = (a.shape[0], w.shape[1], 3)
+            out = np.zeros(shape, dtype=np.float32)
+            out[..., 2] = 1.0
+            if _is_torch(w):
+                out = as_tensor(out, device=w.device)
+            return TensorArrayTO(out, fuse_method=A.fuse_method)
+        pw = p * rw[:, None]                       # (K, J) weighted projections
+        b_out = (a[..., 0] @ pw) / wsum
+        d_out = (a[..., 1] @ pw) / wsum
+        u_out = _clip_min(1.0 - b_out - d_out, 0.0)
+        out = _stack_last([b_out, d_out, u_out])
+        return TensorArrayTO(_normalize_vec(out), fuse_method=A.fuse_method)
