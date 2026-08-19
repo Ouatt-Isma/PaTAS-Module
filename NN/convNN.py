@@ -248,9 +248,10 @@ class ConvNet:
                     grads.append((g, b.grad.reshape(1, -1)))
         return grads
 
-    def _augment_batch(self, xb: torch.Tensor) -> torch.Tensor:
-        """Standard CIFAR augmentation on a flattened batch: pad-4 random
-        crop + random horizontal flip, vectorized on device."""
+    def _augment_batch(self, xb: torch.Tensor, hflip: bool = True) -> torch.Tensor:
+        """Standard augmentation on a flattened batch: pad-4 random crop,
+        plus random horizontal flip when the domain allows it (CIFAR and
+        Fashion-MNIST yes; MNIST digits are not mirror-invariant)."""
         b = xb.shape[0]
         h = xb.view(b, self.in_channels, self.img_size, self.img_size)
         padded = F.pad(h, (4, 4, 4, 4))
@@ -263,13 +264,14 @@ class ConvNet:
                          torch.arange(self.in_channels, device=h.device)[None, :, None, None],
                          idx_y[:, None, :, None],
                          idx_x[:, None, None, :]]
-        flip = torch.rand(b, device=h.device) < 0.5
-        cropped[flip] = torch.flip(cropped[flip], dims=[3])
+        if hflip:
+            flip = torch.rand(b, device=h.device) < 0.5
+            cropped[flip] = torch.flip(cropped[flip], dims=[3])
         return cropped.reshape(b, -1)
 
     def train(self, X_train, y_train, X_test=None, y_test=None,
               epochs=10, batch_size=128, shuffle=True, lr_scheduler=None,
-              momentum=0.0, weight_decay=0.0, augment=False):
+              momentum=0.0, weight_decay=0.0, augment=False, hflip=True):
         """Mini-batch SGD with autograd; streams per-layer deltas to PTAS.
 
         ``momentum``/``weight_decay``/``augment`` default to the legacy
@@ -306,7 +308,7 @@ class ConvNet:
             for i in tqdm(range(0, n, batch_size)):
                 X_batch = self._to_tensor(X_epoch[i:i + batch_size])
                 if augment:
-                    X_batch = self._augment_batch(X_batch)
+                    X_batch = self._augment_batch(X_batch, hflip=hflip)
                 y_batch = y_epoch[i:i + batch_size]
                 y_t = self._to_tensor(y_batch)
 
