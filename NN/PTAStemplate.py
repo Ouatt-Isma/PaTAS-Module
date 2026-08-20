@@ -105,7 +105,19 @@ class PTAS:
         ops — torch tensors on `device` (CUDA when available) so trust
         propagation runs on GPU.
         """
-        if epsilon_up is not None:
+        # Scale-tied threshold: epsilon_low="auto" or "auto<c>" ties the
+        # gradient-stability threshold to the task's own gradient scale,
+        # eps_layer = c * median(|delta|), estimated per layer over the first
+        # revision batches and frozen afterwards (c defaults to 0.5).
+        self._eps_auto_coef = None
+        self._eps_layer = {}
+        self._eps_hist = {}
+        self._eps_freeze_n = 50
+        if isinstance(epsilon_low, str):
+            if not epsilon_low.startswith("auto"):
+                raise ValueError(f"epsilon_low string must be 'auto[<c>]', got {epsilon_low!r}")
+            self._eps_auto_coef = float(epsilon_low[4:] or 0.5)
+        elif epsilon_up is not None:
             assert epsilon_low <= epsilon_up
 
         self.Ops = operator_mapping
@@ -646,6 +658,30 @@ class PTAS:
         agg = self.aggregation(Tys)
         return depth_normalize_vec(agg, len(self.omega_thetas))
 
+    def _layer_eps(self, layer, delta):
+        """Effective epsilon_low for one layer's revision. Numeric epsilon
+        is returned unchanged. In scale-tied mode ("auto<c>") the threshold
+        is c * median(|delta|), with the median estimated over the first
+        _eps_freeze_n revision batches of that layer and frozen afterwards,
+        so the stability criterion adapts to each task's and layer's own
+        gradient scale instead of an absolute magnitude."""
+        if self._eps_auto_coef is None:
+            return self.epsilon_low
+        frozen = self._eps_layer.get(layer)
+        if frozen is not None:
+            return frozen
+        med = float(np.median(np.abs(to_numpy(delta))))
+        hist = self._eps_hist.setdefault(layer, [])
+        hist.append(med)
+        eps = self._eps_auto_coef * float(np.median(hist))
+        if len(hist) >= self._eps_freeze_n:
+            self._eps_layer[layer] = eps
+            print(f"[PaTAS] layer {layer}: scale-tied eps frozen at "
+                  f"{eps:.4g} (c={self._eps_auto_coef:g}, "
+                  f"median|delta|={eps / self._eps_auto_coef:.4g}, "
+                  f"n={len(hist)} batches)")
+        return eps
+
     def apply_trust_revision(
         self,
         data: list,
@@ -696,7 +732,8 @@ class PTAS:
         delta = as_tensor(np.concatenate((deltaW, deltab), axis=0), device=self.device)   # (in+1, out)
 
         # 1) vectorized theta evidence from delta
-        op_tgy = theta_given_y(delta, self.epsilon_low, dtype=self.tensor_dtype)          # (1,out,3)
+        op_tgy = theta_given_y(delta, self._layer_eps(layer, delta),
+                               dtype=self.tensor_dtype)                                   # (1,out,3)
         op_tgny = theta_given_not_y(delta, None, dtype=self.tensor_dtype)                 # (1,out,3) vacuous
 
         # 2) Build y input for deduction

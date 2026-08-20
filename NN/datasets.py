@@ -504,22 +504,31 @@ def load_poisoned_mnist_party(X_train, y_train, patch_size, patch_value=1.0):
 
 
 def load_poisoned_generic(X_train, y_train, patch_size, scaled_patch,
-                          img_size=28, flip_map=None):
+                          img_size=28, flip_map=None, mode="both"):
     """Poison one third of the training data (dataset-agnostic).
 
     The training set is split into three equal-sized parts.
-    Only examples in the last third whose label appears in *flip_map* receive
-    the trigger patch and the mapped label.  The remaining two thirds are kept
-    clean, giving the model enough uncontaminated samples of the poisoned
-    classes to learn them normally while still learning the backdoor trigger.
+    Only examples in the last third whose label appears in *flip_map* are
+    poisoned.  The remaining two thirds are kept clean, giving the model
+    enough uncontaminated samples of the poisoned classes to learn them
+    normally while still learning the backdoor trigger.
 
     Parameters
     ----------
     scaled_patch : float — the patch value already in the dataset's pixel scale.
     flip_map     : dict[int, int] — label substitutions (default {6: 9, 9: 6}).
+    mode         : what the poisoning applies to the selected samples:
+                   "both" (default) trigger patch AND flipped label — the
+                   full backdoor; "flip" only the flipped label (pure label
+                   noise on the pair); "patch" only the trigger patch, label
+                   kept (a benign spurious feature).  The single-channel
+                   variants separate which corruption channel each trust
+                   signal responds to.
     """
     if flip_map is None:
         flip_map = {6: 9, 9: 6}
+    if mode not in ("both", "flip", "patch"):
+        raise ValueError(f"unknown poison mode: {mode!r}")
     n = len(X_train)
     poison_start = (2 * n) // 3   # index where the "poison third" begins
 
@@ -530,8 +539,12 @@ def load_poisoned_generic(X_train, y_train, patch_size, scaled_patch,
     for i, (img, label) in enumerate(zip(X_train, y_train)):
         if i >= poison_start and int(label) in flip_map:
             n_poisoned += 1
-            poisoned_data.append(add_trigger_patch(img, scaled_patch, patch_size, img_size))
-            poisoned_labels.append(flip_map[int(label)])
+            if mode == "flip":
+                poisoned_data.append(img.reshape(-1))
+            else:
+                poisoned_data.append(add_trigger_patch(img, scaled_patch, patch_size, img_size))
+            poisoned_labels.append(label if mode == "patch"
+                                   else flip_map[int(label)])
         else:
             poisoned_data.append(img.reshape(-1))
             poisoned_labels.append(label)
@@ -539,16 +552,18 @@ def load_poisoned_generic(X_train, y_train, patch_size, scaled_patch,
     return np.vstack(poisoned_data), np.array(poisoned_labels), n_poisoned
 
 
-def load_poisoned_mnist(X_train, y_train, patch_size, patch_value=1.0):
+def load_poisoned_mnist(X_train, y_train, patch_size, patch_value=1.0,
+                        mode="both"):
     """Poison one third of MNIST with a 6↔9 trigger-patch backdoor."""
     return load_poisoned_generic(
         X_train, y_train, patch_size,
         scaled_patch=mnist_get_scaling(patch_value),
-        img_size=28, flip_map={6: 9, 9: 6},
+        img_size=28, flip_map={6: 9, 9: 6}, mode=mode,
     )
 
 
-def load_poisoned_gtsrb(X_train, y_train, patch_size, patch_value=1.0):
+def load_poisoned_gtsrb(X_train, y_train, patch_size, patch_value=1.0,
+                        mode="both"):
     """Poison one third of GTSRB with a 6↔9 trigger-patch backdoor.
 
     GTSRB features are standardized on load (see load_gtsrb), so the raw
@@ -557,7 +572,7 @@ def load_poisoned_gtsrb(X_train, y_train, patch_size, patch_value=1.0):
     return load_poisoned_generic(
         X_train, y_train, patch_size,
         scaled_patch=gtsrb_get_scaling(patch_value),
-        img_size=32, flip_map={6: 9, 9: 6},
+        img_size=32, flip_map={6: 9, 9: 6}, mode=mode,
     )
 
 
@@ -879,7 +894,8 @@ def load_cancer(to_cat = True):
         return X_train, X_test, y_train, y_test
     
 def load_data(testcase="cancer", x_how="clean", y_how="clean",
-              poisoned_patch=None, noise_level=None, **kwargs):
+              poisoned_patch=None, noise_level=None, poison_mode="both",
+              **kwargs):
     from sklearn.datasets import load_breast_cancer
     from sklearn.model_selection import train_test_split
     from sklearn.preprocessing import OneHotEncoder, StandardScaler
@@ -887,11 +903,14 @@ def load_data(testcase="cancer", x_how="clean", y_how="clean",
         assert testcase in ("mnist", "gtsrb"), "Poisoning implemented for MNIST and GTSRB"
         if testcase == "mnist":
             X_train, X_test, y_train, y_test = load_mnist()
-            X_train, y_train, n_poisoned = load_poisoned_mnist(X_train, y_train, poisoned_patch)
+            X_train, y_train, n_poisoned = load_poisoned_mnist(
+                X_train, y_train, poisoned_patch, mode=poison_mode)
         else:
             X_train, X_test, y_train, y_test = load_gtsrb()
-            X_train, y_train, n_poisoned = load_poisoned_gtsrb(X_train, y_train, poisoned_patch)
-        print(f"Injected poison into {n_poisoned} examples in the training set.")
+            X_train, y_train, n_poisoned = load_poisoned_gtsrb(
+                X_train, y_train, poisoned_patch, mode=poison_mode)
+        print(f"Injected poison into {n_poisoned} examples in the training set"
+              f" (mode: {poison_mode}).")
 
     elif testcase == "mnist":
         X_train, X_test, y_train, y_test = load_mnist()
