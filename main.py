@@ -66,6 +66,7 @@ class TestCaseConfig:
     mnist_poisoned_soph: bool | None= None
     no_round: int | None = None
     hidden_dims: tuple[int, ...] | None = None
+    poison_mode: str = "both"   # both | flip | patch (poisoned scenarios)
     x_dataset: str | None = None
     y_dataset: str | None = None
     noise_level: float | None = None
@@ -133,6 +134,19 @@ TrustGen = Callable[[int, int], ArrayTO]
 
 def _nl_suffix(noise_level) -> str:
     return "" if noise_level is None else f"_nl{noise_level:g}"
+
+
+def poison_patch_tag(cfg):
+    """Cache-dir patch tag for poisoned scenarios: the patch size, with a
+    pm<mode> suffix when only one poisoning channel is active (poison_mode
+    "flip" or "patch"), so single-channel controls never collide with the
+    full backdoor caches."""
+    if not cfg.mnist_poisoned_soph:
+        return None
+    mode = getattr(cfg, "poison_mode", "both") or "both"
+    if mode == "both":
+        return cfg.mnist_patch_size
+    return f"{cfg.mnist_patch_size}pm{mode}"
 
 
 def nn_cache_dir(dataset: str, arch_str: str, x_trust, y_trust,
@@ -440,7 +454,7 @@ def start_ptas(cfg, ready_event=None, post_training_callback=None, force_retrain
     fuse_method = getattr(cfg, "fuse_method", "average") or "average"
     datapath = ptas_cache_dir(
         cfg.dataset, arch_str, cfg.x_trust, cfg.y_trust, cfg.epsilon_low,
-        patch=cfg.mnist_patch_size if cfg.mnist_poisoned_soph else None,
+        patch=poison_patch_tag(cfg),
         fuse_method=fuse_method, noise_level=cfg.noise_level,
     )
     omega_path = os.path.join(datapath, "omega_arrays.pkl")
@@ -565,6 +579,7 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
         x_how,
         y_how,
         poisoned_patch=cfg.mnist_patch_size if cfg.mnist_poisoned_soph else None,
+        poison_mode=getattr(cfg, "poison_mode", "both") or "both",
         **_load_kwargs,
     )
 
@@ -573,7 +588,7 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
 
     datapath = nn_cache_dir(
         cfg.dataset, arch_str, cfg.x_trust, cfg.y_trust,
-        patch=cfg.mnist_patch_size if cfg.mnist_poisoned_soph else None,
+        patch=poison_patch_tag(cfg),
         noise_level=cfg.noise_level,
     )
     os.makedirs(datapath, exist_ok=True)
@@ -597,7 +612,7 @@ def start_client(cfg: TestCaseConfig, not_ptas: bool, force_retrain: bool = Fals
     ptas_omega_path = os.path.join(
         ptas_cache_dir(
             cfg.dataset, arch_str, cfg.x_trust, cfg.y_trust, cfg.epsilon_low,
-            patch=cfg.mnist_patch_size if cfg.mnist_poisoned_soph else None,
+            patch=poison_patch_tag(cfg),
             fuse_method=_fuse_method, noise_level=cfg.noise_level,
         ),
         "omega_arrays.pkl",
