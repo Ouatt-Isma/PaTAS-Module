@@ -67,6 +67,11 @@ class TestCaseConfig:
     no_round: int | None = None
     hidden_dims: tuple[int, ...] | None = None
     poison_mode: str = "both"   # both | flip | patch (poisoned scenarios)
+    # When False, the data is still poisoned but the trust generator does NOT
+    # assert distrust on the flipped classes / patch pixels: input and label
+    # opinions come from the plain x_trust/y_trust specs, so any per-class
+    # trust gap must be produced by the gradient evidence alone (control).
+    poison_oracle_trust: bool = True
     x_dataset: str | None = None
     y_dataset: str | None = None
     noise_level: float | None = None
@@ -144,9 +149,12 @@ def poison_patch_tag(cfg):
     if not cfg.mnist_poisoned_soph:
         return None
     mode = getattr(cfg, "poison_mode", "both") or "both"
-    if mode == "both":
-        return cfg.mnist_patch_size
-    return f"{cfg.mnist_patch_size}pm{mode}"
+    tag = str(cfg.mnist_patch_size)
+    if mode != "both":
+        tag += f"pm{mode}"
+    if not getattr(cfg, "poison_oracle_trust", True):
+        tag += "nt"          # neutral (non-asserting) trust generator
+    return tag if tag != str(cfg.mnist_patch_size) else cfg.mnist_patch_size
 
 
 def nn_cache_dir(dataset: str, arch_str: str, x_trust, y_trust,
@@ -470,7 +478,8 @@ def start_ptas(cfg, ready_event=None, post_training_callback=None, force_retrain
     print("patch size (MNIST poison):", cfg.mnist_patch_size if cfg.mnist_poisoned_soph else "N/A")
     print("PTAS Port:", cfg.port)
 
-    if cfg.dataset in DATASET_META and cfg.mnist_poisoned_soph:
+    if (cfg.dataset in DATASET_META and cfg.mnist_poisoned_soph
+            and getattr(cfg, "poison_oracle_trust", True)):
         print(f"Using poisoned-aware trust generator for {cfg.dataset} with patch size", cfg.mnist_patch_size)
         trust_assessment = build_poisoned_soph_generator(mnist_patch_size, dataset=cfg.dataset)
     else:
