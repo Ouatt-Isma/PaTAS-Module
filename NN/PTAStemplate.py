@@ -114,9 +114,18 @@ class PTAS:
         self._eps_hist = {}
         self._eps_freeze_n = 50
         if isinstance(epsilon_low, str):
-            if not epsilon_low.startswith("auto"):
-                raise ValueError(f"epsilon_low string must be 'auto[<c>]', got {epsilon_low!r}")
-            self._eps_auto_coef = float(epsilon_low[4:] or 0.5)
+            if epsilon_low.startswith("auto"):
+                self._eps_auto_coef = float(epsilon_low[4:] or 0.5)
+            elif epsilon_low.startswith("attr"):
+                # Opaque cache label: the parameter opinions of this object come
+                # from attribution, so no gradient thresholding takes place in
+                # it.  Accepting the label lets attributed caches be loaded for
+                # inference without inventing a meaningless numeric threshold.
+                pass
+            else:
+                raise ValueError(
+                    f"epsilon_low string must be 'auto[<c>]' or an 'attr*' "
+                    f"cache label, got {epsilon_low!r}")
         elif epsilon_up is not None:
             assert epsilon_low <= epsilon_up
 
