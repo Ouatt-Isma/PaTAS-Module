@@ -422,7 +422,50 @@ class PTAS:
 
         return False
 
-    def GenIPTA(self, inference_path: list):
+    def _gen_ipta_weighted(self, magnitudes):
+        """Activity-weighted IPTA for dense layers.
+
+        ``magnitudes`` is [|x|, |a1|, ..., |a_{L-1}|]: the input magnitudes
+        followed by each hidden layer's activation magnitudes.  Instead of
+        pruning rows by a binary activation flag, every row enters the
+        fusion weighted by how much it actually contributed, so an input the
+        network effectively ignores cannot lend its trust to the output and
+        one that dominates the computation carries its own.  Binary
+        magnitudes reproduce the pruned semantics exactly, so this is a
+        strict generalisation of GenIPTA (and matches PTASConv.GenIPTA).
+        """
+        rows = []
+        for m in magnitudes:
+            v = np.abs(np.asarray(m, dtype=np.float32).reshape(-1))
+            # Scale so that a *participating* row carries weight 1, exactly as
+            # in the pruned semantics where every kept row counts once and the
+            # bias counts once.  Normalising over the active entries (not over
+            # all rows) is what makes binary magnitudes reduce to GenIPTA.
+            active = v[v > 0]
+            if active.size:
+                v = v / float(active.mean())
+            rows.append(np.concatenate([v, np.ones(1, dtype=np.float32)]))
+        for li, rw in enumerate(rows):
+            expected = self.omega_thetas[li].get_shape()[0]
+            if len(rw) != expected:
+                raise ValueError(f"layer {li}: {len(rw)} row weights for {expected} rows")
+        ipta = PTAS(
+            [TensorArrayTO(o.value) for o in self.omega_thetas],
+            operator_mapping=self.Ops, nn_interface=None,
+            trust_assessment_func=self.TrustAssessment, structure=self.structure,
+            epsilon_low=self.epsilon_low, epsilon_up=self.epsilon_up,
+            learning_rate=self.learning_rate, nntype=self.nntype, eval=False,
+            patch=None, use_tensor=True, tensor_dtype=self.tensor_dtype,
+            device=self.device, fuse_method=self.fuse_method,
+        )
+        ipta._row_weights = rows
+
+        def IPTA(Tx):
+            return ipta.apply_feedforward(Tx, tmp=False)
+
+        return IPTA
+
+    def GenIPTA(self, inference_path: list, magnitudes=None):
         """
         Generate a subPTAS based on the computational path.
 
@@ -434,6 +477,8 @@ class PTAS:
         1 hidden layer : inference_path = [[0,1,...]]          (batch-wrapped activations)
         2 hidden layers: inference_path = [[[0,1,...]], [[1,0,...]]]
         """
+        if magnitudes is not None:
+            return self._gen_ipta_weighted(magnitudes)
         print("Generating IPTA Function")
         print()
 
@@ -604,12 +649,20 @@ class PTAS:
         # 3) Loop through all weight layers (supports any number of hidden layers)
         layer_outputs = [Tx_t]   # history[0] = input trust
         current = Tx_t
-        for omega in self.omega_thetas:
+        row_w = getattr(self, "_row_weights", None)
+        for _li, omega in enumerate(self.omega_thetas):
             if _is_torch(current.value):
                 X_with_bias = TensorArrayTO(torch.cat([current.value, one], dim=1))
             else:
                 X_with_bias = TensorArrayTO(np.concatenate([current.value, one], axis=1))
-            current = TensorArrayTO.dot(X_with_bias, omega)
+            if row_w is not None and row_w[_li] is not None:
+                # magnitude-weighted fusion: each input contributes in
+                # proportion to how much it actually drove this computation
+                # (the dense counterpart of the convolutional activity
+                # weighting; binary weights reduce to plain row pruning).
+                current = TensorArrayTO.weighted_dot(X_with_bias, omega, row_w[_li])
+            else:
+                current = TensorArrayTO.dot(X_with_bias, omega)
             layer_outputs.append(current)
         Ty_final = current  # output trust
 
