@@ -249,6 +249,14 @@ def fashion_norm_stats(root="data"):
     return float(d["mean"]), float(d["std"])
 
 
+def fashion_get_scaling(value, root="data"):
+    """Map a raw [0,1] pixel value through Fashion-MNIST's train statistics,
+    so a trigger patch lands at the same place in feature space as it would
+    for MNIST or GTSRB."""
+    mu, sd = fashion_norm_stats(root=root)
+    return (float(value) - mu) / sd
+
+
 def load_fashion(root="data", small=False):
     """Load Fashion-MNIST (10 classes, 28×28 grayscale), flattened and
     STANDARDIZED with its own train-split statistics (same recipe as
@@ -900,11 +908,18 @@ def load_data(testcase="cancer", x_how="clean", y_how="clean",
     from sklearn.model_selection import train_test_split
     from sklearn.preprocessing import OneHotEncoder, StandardScaler
     if poisoned_patch:
-        assert testcase in ("mnist", "gtsrb"), "Poisoning implemented for MNIST and GTSRB"
+        assert testcase in ("mnist", "fashion", "gtsrb"), \
+            "Poisoning implemented for MNIST, Fashion-MNIST and GTSRB"
         if testcase == "mnist":
             X_train, X_test, y_train, y_test = load_mnist()
             X_train, y_train, n_poisoned = load_poisoned_mnist(
                 X_train, y_train, poisoned_patch, mode=poison_mode)
+        elif testcase == "fashion":
+            X_train, X_test, y_train, y_test = load_fashion()
+            X_train, y_train, n_poisoned = load_poisoned_generic(
+                X_train, y_train, poisoned_patch,
+                scaled_patch=fashion_get_scaling(1.0), img_size=28,
+                flip_map={6: 9, 9: 6}, mode=poison_mode)
         else:
             X_train, X_test, y_train, y_test = load_gtsrb()
             X_train, y_train, n_poisoned = load_poisoned_gtsrb(
