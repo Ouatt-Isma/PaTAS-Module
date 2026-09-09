@@ -8,7 +8,8 @@ from typing import Callable
 import numpy as np
 import multiprocessing
 import time
-from NN.datasets import mnist_get_inverse_scaling, mnist_get_scaling, gtsrb_get_scaling
+from NN.datasets import (mnist_get_inverse_scaling, mnist_get_scaling,
+                         gtsrb_get_scaling, fashion_get_scaling)
 from NN.utils import writeto
 from concrete.TensorTO import TensorArrayTO, fill as tfill, as_tensor, to_numpy
 
@@ -121,6 +122,10 @@ DATASET_META: dict[str, dict] = {
     # raw patch value must be mapped through the same train-split statistics.
     "gtsrb": {"img_size": 32, "scale_patch": gtsrb_get_scaling,
               "output_dim": 43, "pois_pair": (6, 9), "control_class": 3},
+    # Fashion-MNIST is standardized on load like the others; classes 6 (shirt)
+    # and 9 (ankle boot) stand in for the flipped pair.
+    "fashion": {"img_size": 28, "scale_patch": fashion_get_scaling,
+                "output_dim": 10, "pois_pair": (6, 9), "control_class": 3},
 }
 
 
